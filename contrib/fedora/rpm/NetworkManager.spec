@@ -48,7 +48,7 @@
 %global systemd_units_cloud_setup nm-cloud-setup.service nm-cloud-setup.timer
 
 ###############################################################################
-%if 0%{?fedora} > 40
+%if 0%{?fedora} > 40 || 0%{?rhel} >= 10
 %bcond_without meson
 %else
 %bcond_with    meson
@@ -918,7 +918,8 @@ autoreconf --install --force
 	--with-resolvconf=no \
 	--with-netconfig=no \
 	--with-config-dns-rc-manager-default=%{dns_rc_manager_default} \
-	--with-config-logging-backend-default=%{logging_backend_default}
+	--with-config-logging-backend-default=%{logging_backend_default} \
+	--disable-autotools-deprecation
 
 %make_build
 
