@@ -6,7 +6,7 @@ project(
 #  - add corresponding NM_VERSION_x_y_z macros in
 #    "src/libnm-core-public/nm-version-macros.h.in"
 #  - update number in configure.ac
-  version: '1.49.1',
+  version: '1.49.2',
   license: 'GPL2+',
   default_options: [
     'buildtype=debugoptimized',
@@ -656,6 +656,9 @@ foreach client : [ 'dhclient', 'dhcpcd', 'dhcpcanon' ]
   dhcp_summary += ('  ' + client + ': ' + client_enable.to_string())
   if (client_enable)
     dhcp_summary += (' ' + client_path)
+  endif
+  if (client == 'dhclient')
+    dhcp_summary += ' (deprecated)'
   endif
   dhcp_summary += '\n'
 endforeach
