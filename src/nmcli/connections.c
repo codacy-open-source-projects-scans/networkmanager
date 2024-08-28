@@ -6584,8 +6584,15 @@ extract_setting_and_property(const char *prompt, const char *line, char **settin
             p2   = dot + 1;
             num1 = strcspn(p1, ".");
             num2 = len > num1 + 1 ? len - num1 - 1 : 0;
-            sett = num1 > 0 ? g_strndup(p1, num1) : sett;
-            prop = num2 > 0 ? g_strndup(p2, num2) : prop;
+            if (num1 > 0) {
+                g_free(sett);
+                sett = g_strndup(p1, num1);
+            }
+
+            if (num2 > 0) {
+                g_free(prop);
+                prop = g_strndup(p2, num2);
+            }
         } else {
             if (!prop)
                 prop = len > 0 ? g_strndup(p1, len) : NULL;
@@ -6630,9 +6637,11 @@ get_setting_and_property(const char *prompt,
         valid_settings_port = nm_meta_setting_info_valid_parts_for_port_type(s_type, NULL);
 
         setting_name = check_valid_name(sett, valid_settings_main, valid_settings_port, NULL);
-        setting      = nm_meta_setting_info_editor_new_setting(
-            nm_meta_setting_info_editor_find_by_name(setting_name, FALSE),
-            NM_META_ACCESSOR_SETTING_INIT_TYPE_DEFAULT);
+        if (setting_name) {
+            setting = nm_meta_setting_info_editor_new_setting(
+                nm_meta_setting_info_editor_find_by_name(setting_name, FALSE),
+                NM_META_ACCESSOR_SETTING_INIT_TYPE_DEFAULT);
+        }
     } else
         setting = nm_g_object_ref(nmc_tab_completion.setting);
 

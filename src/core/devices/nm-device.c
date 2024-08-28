@@ -13881,6 +13881,8 @@ check_and_reapply_connection(NMDevice            *self,
     if (priv->state >= NM_DEVICE_STATE_ACTIVATED)
         nm_device_update_metered(self);
 
+    nm_device_reapply_bridge_port_vlans(self);
+
     sett_conn = nm_device_get_settings_connection(self);
     if (sett_conn) {
         nm_settings_connection_autoconnect_blocked_reason_set(
@@ -16891,10 +16893,6 @@ _set_state_full(NMDevice *self, NMDeviceState state, NMDeviceStateReason reason,
             _cleanup_ip_pre(self, AF_INET6, CLEANUP_TYPE_DECONFIGURE, FALSE);
         }
         break;
-    case NM_DEVICE_STATE_DEACTIVATING:
-        /* If we are now deactivating we should enforce IP cleanup. */
-        _cleanup_ip_pre(self, AF_INET, CLEANUP_TYPE_DECONFIGURE, FALSE);
-        _cleanup_ip_pre(self, AF_INET6, CLEANUP_TYPE_DECONFIGURE, FALSE);
     default:
         break;
     }
