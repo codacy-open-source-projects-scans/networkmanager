@@ -318,7 +318,7 @@ check_connection_compatible_with_modem(NMModem *modem, NMConnection *connection,
 
     if (!_nm_connection_check_main_setting(connection, NM_SETTING_GSM_SETTING_NAME, NULL)) {
         nm_utils_error_set(error,
-                           NM_UTILS_ERROR_CONNECTION_AVAILABLE_INCOMPATIBLE,
+                           NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_INCOMPATIBLE,
                            "connection type %s is not supported by ofono modem",
                            nm_connection_get_connection_type(connection));
         return FALSE;
@@ -326,7 +326,7 @@ check_connection_compatible_with_modem(NMModem *modem, NMConnection *connection,
 
     if (!priv->imsi) {
         nm_utils_error_set_literal(error,
-                                   NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+                                   NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_OTHER,
                                    "modem has no IMSI");
         return FALSE;
     }
@@ -335,7 +335,7 @@ check_connection_compatible_with_modem(NMModem *modem, NMConnection *connection,
 
     if (!g_hash_table_contains(priv->contexts, uuid)) {
         nm_utils_error_set_literal(error,
-                                   NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+                                   NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_OTHER,
                                    "connection ID does not match known contexts");
         return FALSE;
     }
@@ -1613,9 +1613,9 @@ nm_modem_ofono_init(NMModemOfono *self)
     priv->modem_proxy_cancellable = g_cancellable_new();
     priv->connections = g_hash_table_new_full(nm_str_hash, g_str_equal, g_free, g_object_unref);
     priv->contexts    = g_hash_table_new_full(nm_str_hash,
-                                           g_str_equal,
-                                           g_free,
-                                           (GDestroyNotify) ofono_context_data_free);
+                                              g_str_equal,
+                                              g_free,
+                                              (GDestroyNotify) ofono_context_data_free);
     priv->settings    = g_object_ref(NM_SETTINGS_GET);
 }
 

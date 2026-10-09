@@ -6,6 +6,10 @@
 # On a new upstream release, add new copr jobs named "NetworkManager-X.Y" and
 # "NetworkManager-X.Y-debug".
 #
+# Both jobs can be created automatically with
+#   contrib/scripts/nm-copr-create-release.sh X.Y
+# Otherwise, set them up manually:
+#
 #   - best, look at the latest copr project and replicate the settings.
 #   - add a custom build with the following script:
 #
@@ -74,9 +78,13 @@ get_nm_git_bundle() {
     fi
     mkdir nm-git-bundle
     pushd nm-git-bundle
-    time curl "$NM_GIT_BUNDLE" \
-      | rpm2cpio - \
-      | cpio -idmv
+    if ! time curl --fail -o nm-git-bundle.rpm "$NM_GIT_BUNDLE"; then
+        # The bundle is only a fetch speed-up; fall back to the git fetch below.
+        echo "nm-git-bundle unavailable at $NM_GIT_BUNDLE, falling back to upstream git fetch" >&2
+        popd
+        return 0
+    fi
+    rpm2cpio nm-git-bundle.rpm | cpio -idmv
     popd
     git remote add nm-git-bundle "$PWD/nm-git-bundle/usr/share/NetworkManager/nm-git-bundle.git"
     git fetch nm-git-bundle

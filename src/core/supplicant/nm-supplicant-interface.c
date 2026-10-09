@@ -66,6 +66,7 @@ enum {
     WPS_CREDENTIALS, /* WPS credentials received */
     GROUP_STARTED,   /* a new Group (interface) was created */
     GROUP_FINISHED,  /* a Group (interface) has been finished */
+    FIND_STOPPED,    /* the P2P find operation stopped */
     PSK_MISMATCH,    /* supplicant reported incorrect PSK */
     SAE_MISMATCH,    /* supplicant reported incorrect SAE Password */
     LAST_SIGNAL
@@ -765,10 +766,12 @@ _bss_info_properties_changed(NMSupplicantInterface *self,
 
     v_v = nm_g_variant_lookup_value(properties, "IEs", G_VARIANT_TYPE_BYTESTRING);
     if (v_v) {
-        gboolean p_owe_transition_mode;
-        gboolean p_metered;
-        guint32  rate;
-        guint32  bandwidth;
+        gboolean    p_owe_transition_mode;
+        gboolean    p_metered;
+        guint32     rate;
+        guint32     bandwidth;
+        NMEtherAddr p_mld_addr;
+        gboolean    p_mld_addr_valid;
 
         arr_data = g_variant_get_fixed_array(v_v, &arr_len, 1);
         nm_wifi_utils_parse_ies(arr_data,
@@ -776,7 +779,9 @@ _bss_info_properties_changed(NMSupplicantInterface *self,
                                 &rate,
                                 &bandwidth,
                                 &p_metered,
-                                &p_owe_transition_mode);
+                                &p_owe_transition_mode,
+                                &p_mld_addr,
+                                &p_mld_addr_valid);
         p_max_rate     = NM_MAX(p_max_rate, rate);
         p_max_rate_has = TRUE;
         g_variant_unref(v_v);
@@ -786,8 +791,13 @@ _bss_info_properties_changed(NMSupplicantInterface *self,
         else
             bss_info->rsn_flags &= ~NM_802_11_AP_SEC_KEY_MGMT_OWE_TM;
 
-        bss_info->metered   = p_metered;
-        bss_info->bandwidth = bandwidth;
+        bss_info->metered        = p_metered;
+        bss_info->bandwidth      = bandwidth;
+        bss_info->mld_addr_valid = p_mld_addr_valid;
+        if (p_mld_addr_valid)
+            bss_info->mld_addr = p_mld_addr;
+        else
+            memset(&bss_info->mld_addr, 0, sizeof(bss_info->mld_addr));
     }
 
     if (p_max_rate_has)
@@ -1303,7 +1313,7 @@ parse_capabilities(NMSupplicantInterface *self, GVariant *capabilities)
          * request will be rejected with "fi.w1.wpa_supplicant1.InvalidArgs"
          * Body: ('Did not receive correct message arguments.', 'Too many ssids specified. Specify at most four')
          * */
-        priv->max_scan_ssids = CLAMP(max_scan_ssids, 0, WPAS_MAX_SCAN_SSIDS);
+        priv->max_scan_ssids = NM_CLAMP(max_scan_ssids, 0, WPAS_MAX_SCAN_SSIDS);
     }
 
     if (old_max_scan_ssids != priv->max_scan_ssids || old_prop_scan_active != priv->prop_scan_active
@@ -2922,23 +2932,87 @@ nm_supplicant_interface_get_max_scan_ssids(NMSupplicantInterface *self)
 
 /*****************************************************************************/
 
-void
-nm_supplicant_interface_p2p_start_find(NMSupplicantInterface *self, guint timeout)
+typedef struct {
+    NMSupplicantInterface              *self;
+    GCancellable                       *cancellable;
+    NMSupplicantInterfaceP2PStartFindCb callback;
+    gpointer                            user_data;
+} P2PStartFindData;
+
+static void
+p2p_start_find_cb(GObject *source, GAsyncResult *result, gpointer user_data)
 {
-    GVariantBuilder builder;
+    gs_unref_object NMSupplicantInterface *self  = NULL;
+    gs_unref_variant GVariant             *res   = NULL;
+    gs_free_error GError                  *error = NULL;
+    P2PStartFindData                      *data  = user_data;
+
+    /* The callback was provided, so @self was kept alive. Balance it. */
+    self = data->self;
+
+    res = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+    if (error)
+        g_dbus_error_strip_remote_error(error);
+
+    data->callback(self, data->cancellable, error, data->user_data);
+
+    g_object_unref(data->cancellable);
+    nm_g_slice_free(data);
+}
+
+/**
+ * nm_supplicant_interface_p2p_start_find:
+ * @self: the #NMSupplicantInterface
+ * @timeout: the find timeout in seconds, in the range of 1-600
+ * @cancellable: a #GCancellable owned by the caller, cancelled before the
+ *   caller goes away so that a late reply never reaches @user_data
+ * @callback: invoked when the call completes. On failure the find is not
+ *   running, so state held for its duration has to be released. Unlike a
+ *   scan request, a rejected Find() is a definite answer: the operation
+ *   never started, and no FindStopped follows it.
+ * @user_data: user data for @callback
+ *
+ * Starts a P2P find operation.
+ */
+void
+nm_supplicant_interface_p2p_start_find(NMSupplicantInterface              *self,
+                                       guint                               timeout,
+                                       GCancellable                       *cancellable,
+                                       NMSupplicantInterfaceP2PStartFindCb callback,
+                                       gpointer                            user_data)
+{
+    GVariantBuilder   builder;
+    P2PStartFindData *data;
 
     g_return_if_fail(NM_IS_SUPPLICANT_INTERFACE(self));
     g_return_if_fail(timeout > 0 && timeout <= 600);
+    g_return_if_fail(callback);
+    g_return_if_fail(G_IS_CANCELLABLE(cancellable));
 
     g_variant_builder_init(&builder, G_VARIANT_TYPE_VARDICT);
     g_variant_builder_add(&builder, "{sv}", "Timeout", g_variant_new_int32(timeout));
 
-    _dbus_connection_call_simple(self,
-                                 NM_WPAS_DBUS_IFACE_INTERFACE_P2P_DEVICE,
-                                 "Find",
-                                 g_variant_new("(a{sv})", &builder),
-                                 G_VARIANT_TYPE("()"),
-                                 "p2p-find");
+    data  = g_slice_new(P2PStartFindData);
+    *data = (P2PStartFindData) {
+        /* Keep @self alive for the reply. The caller must cancel @cancellable
+         * before it goes away; the callback checks it before touching
+         * @user_data. */
+        .self        = g_object_ref(self),
+        .cancellable = g_object_ref(cancellable),
+        .callback    = callback,
+        .user_data   = user_data,
+    };
+
+    _dbus_connection_call(self,
+                          NM_WPAS_DBUS_IFACE_INTERFACE_P2P_DEVICE,
+                          "Find",
+                          g_variant_new("(a{sv})", &builder),
+                          G_VARIANT_TYPE("()"),
+                          G_DBUS_CALL_FLAGS_NONE,
+                          DBUS_TIMEOUT_MSEC,
+                          cancellable,
+                          p2p_start_find_cb,
+                          data);
 }
 
 void
@@ -2952,6 +3026,37 @@ nm_supplicant_interface_p2p_stop_find(NMSupplicantInterface *self)
                                  NULL,
                                  G_VARIANT_TYPE("()"),
                                  "p2p-stop-find");
+}
+
+/**
+ * nm_supplicant_interface_p2p_set_device_name:
+ * @self: the #NMSupplicantInterface
+ * @name: the P2P device name to set
+ *
+ * Sets the "DeviceName" key of the interface's "P2PDeviceConfig"
+ * property. The P2P device name is announced during Wi-Fi Direct (P2P)
+ * discovery and connection so that peers can identify this device.
+ */
+void
+nm_supplicant_interface_p2p_set_device_name(NMSupplicantInterface *self, const char *name)
+{
+    GVariantBuilder config;
+
+    g_return_if_fail(NM_IS_SUPPLICANT_INTERFACE(self));
+    g_return_if_fail(name);
+
+    g_variant_builder_init(&config, G_VARIANT_TYPE_VARDICT);
+    g_variant_builder_add(&config, "{sv}", "DeviceName", g_variant_new_string(name));
+
+    _dbus_connection_call_simple(self,
+                                 DBUS_INTERFACE_PROPERTIES,
+                                 "Set",
+                                 g_variant_new("(ssv)",
+                                               NM_WPAS_DBUS_IFACE_INTERFACE_P2P_DEVICE,
+                                               "P2PDeviceConfig",
+                                               g_variant_new("a{sv}", &config)),
+                                 G_VARIANT_TYPE("()"),
+                                 "p2p-set-device-name");
 }
 
 /*****************************************************************************/
@@ -3266,6 +3371,15 @@ _signal_handle(NMSupplicantInterface *self,
                 peer_path = nm_ref_string_new(path);
                 _peer_info_remove(self, &peer_path);
             }
+            return;
+        }
+
+        if (nm_streq(signal_name, "FindStopped")) {
+            /* Emitted whenever an in-progress find ends: its timeout expired,
+             * somebody called StopFind, or a connection attempt aborted it.
+             * Not emitted when Find() itself fails, so callers that hold state
+             * for the duration of a find still need their own backstop. */
+            g_signal_emit(self, signals[FIND_STOPPED], 0);
             return;
         }
 
@@ -3875,6 +3989,16 @@ nm_supplicant_interface_class_init(NMSupplicantInterfaceClass *klass)
                                            G_TYPE_NONE,
                                            1,
                                            G_TYPE_STRING);
+
+    signals[FIND_STOPPED] = g_signal_new(NM_SUPPLICANT_INTERFACE_FIND_STOPPED,
+                                         G_OBJECT_CLASS_TYPE(object_class),
+                                         G_SIGNAL_RUN_LAST,
+                                         0,
+                                         NULL,
+                                         NULL,
+                                         NULL,
+                                         G_TYPE_NONE,
+                                         0);
 
     signals[PSK_MISMATCH] = g_signal_new(NM_SUPPLICANT_INTERFACE_PSK_MISMATCH,
                                          G_OBJECT_CLASS_TYPE(object_class),

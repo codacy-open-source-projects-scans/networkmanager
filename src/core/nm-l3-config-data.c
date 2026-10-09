@@ -2490,8 +2490,8 @@ _dedup_multi_index_cmp(const NML3ConfigData *a,
             switch (obj_type) {
             case NMP_OBJECT_TYPE_IP4_ADDRESS:
                 NM_CMP_DIRECT(obj_a->ip4_address.plen, obj_b->ip4_address.plen);
-                NM_CMP_DIRECT(obj_b->ip4_address.address, obj_b->ip4_address.address);
-                NM_CMP_DIRECT(obj_b->ip4_address.peer_address, obj_b->ip4_address.peer_address);
+                NM_CMP_DIRECT(obj_a->ip4_address.address, obj_b->ip4_address.address);
+                NM_CMP_DIRECT(obj_a->ip4_address.peer_address, obj_b->ip4_address.peer_address);
                 break;
             case NMP_OBJECT_TYPE_IP6_ADDRESS:
                 NM_CMP_DIRECT(obj_a->ip6_address.plen, obj_b->ip6_address.plen);
@@ -2604,15 +2604,15 @@ nm_l3_config_data_cmp_full(const NML3ConfigData *a,
         const NMPObject *def_route_a = a->best_default_route_x[IS_IPv4];
         const NMPObject *def_route_b = b->best_default_route_x[IS_IPv4];
 
-        if (def_route_a != def_route_b) {
-            if (NM_FLAGS_HAS(flags, NM_L3_CONFIG_CMP_FLAGS_ROUTES)) {
-                NM_CMP_RETURN(
-                    nmp_object_cmp_full(def_route_a,
-                                        def_route_b,
-                                        NM_FLAGS_HAS(flags, NM_L3_CONFIG_CMP_FLAGS_IFINDEX)
-                                            ? NMP_OBJECT_CMP_FLAGS_NONE
-                                            : NMP_OBJECT_CMP_FLAGS_IGNORE_IFINDEX));
-            } else if (NM_FLAGS_HAS(flags, NM_L3_CONFIG_CMP_FLAGS_ROUTES_ID)) {
+        if (NM_FLAGS_HAS(flags, NM_L3_CONFIG_CMP_FLAGS_ROUTES)) {
+            NM_CMP_RETURN(nmp_object_cmp_full(def_route_a,
+                                              def_route_b,
+                                              NM_FLAGS_HAS(flags, NM_L3_CONFIG_CMP_FLAGS_IFINDEX)
+                                                  ? NMP_OBJECT_CMP_FLAGS_NONE
+                                                  : NMP_OBJECT_CMP_FLAGS_IGNORE_IFINDEX));
+        } else if (NM_FLAGS_HAS(flags, NM_L3_CONFIG_CMP_FLAGS_ROUTES_ID)) {
+            NM_CMP_DIRECT(!!def_route_a, !!def_route_b);
+            if (def_route_a && def_route_b) {
                 if (NM_FLAGS_HAS(flags, NM_L3_CONFIG_CMP_FLAGS_IFINDEX)) {
                     NM_CMP_DIRECT(def_route_a->obj_with_ifindex.ifindex,
                                   def_route_b->obj_with_ifindex.ifindex);
@@ -2773,7 +2773,8 @@ nm_l3_config_data_get_direct_route_for_host(const NML3ConfigData *self,
         if (!nm_ip_addr_same_prefix(addr_family, host, item->rx.network_ptr, item->rx.plen))
             continue;
 
-        if (best_route && best_route->rx.metric <= item->rx.metric)
+        if (best_route && best_route->rx.plen == item->rx.plen
+            && best_route->rx.metric <= item->rx.metric)
             continue;
 
         best_route_obj = item_obj;
@@ -3011,8 +3012,8 @@ nm_l3_config_data_add_dependent_device_routes(NML3ConfigData       *self,
                     plen = 128;
                 } else {
                     a6   = nm_ip6_addr_clear_host_address(&a6_stack,
-                                                        &addr_src->a6.address,
-                                                        addr_src->a6.plen);
+                                                          &addr_src->a6.address,
+                                                          addr_src->a6.plen);
                     plen = addr_src->a6.plen;
                 }
 
@@ -3553,7 +3554,7 @@ nm_l3_config_data_merge(NML3ConfigData       *self,
             const NMPlatformIPAddress *a_src = NMP_OBJECT_CAST_IP_ADDRESS(obj);
             NMPlatformIPXAddress       a;
             NML3ConfigMergeHookResult  hook_result = {
-                 .ip4acd_not_ready = NM_OPTION_BOOL_DEFAULT,
+                .ip4acd_not_ready = NM_OPTION_BOOL_DEFAULT,
             };
 
 #define _ensure_a()                                       \

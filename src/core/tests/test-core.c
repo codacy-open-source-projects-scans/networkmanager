@@ -20,6 +20,7 @@
 #include "dns/nm-dns-manager.h"
 #include "nm-connectivity.h"
 #include "nm-firewall-utils.h"
+#include "nm-l3-config-data.h"
 
 #include "nm-test-utils-core.h"
 
@@ -118,10 +119,21 @@ test_nm_utils_ip6_address_clear_host_address(void)
 static void
 test_logging_domains(void)
 {
-    const char *s;
+    gs_free const char **domains = NULL;
+    const char          *s;
+    gsize                i;
 
     s = nm_logging_all_domains_to_string();
     g_assert(s && s[0]);
+
+    /* Every domain that we advertise must also be accepted. */
+    domains = nm_strsplit_set(s, ",");
+    g_assert(domains);
+    for (i = 0; domains[i]; i++) {
+        gs_free_error GError *error = NULL;
+
+        nmtst_assert_success(nm_logging_setup("INFO", domains[i], NULL, &error), error);
+    }
 }
 
 /*****************************************************************************/
@@ -2823,6 +2835,128 @@ test_icmp6_checksum(void)
 
 /*****************************************************************************/
 
+static void
+test_l3_config_data_cmp_default_routes(void)
+{
+    nm_auto_unref_dedup_multi_index NMDedupMultiIndex *multi_idx = nm_dedup_multi_index_new();
+    nm_auto_unref_l3cd_init NML3ConfigData            *a         = NULL;
+    nm_auto_unref_l3cd_init NML3ConfigData            *b         = NULL;
+    const int                                          IFINDEX   = 1;
+
+    a = nm_l3_config_data_new(multi_idx, IFINDEX, NM_IP_CONFIG_SOURCE_USER);
+    nm_l3_config_data_add_route_4(
+        a,
+        NM_PLATFORM_IP4_ROUTE_INIT(.ifindex = IFINDEX,
+                                   .network = 0,
+                                   .plen    = 0,
+                                   .gateway = nmtst_inet4_from_string("192.168.1.1"),
+                                   .metric  = 100));
+
+    b = nm_l3_config_data_new(multi_idx, IFINDEX, NM_IP_CONFIG_SOURCE_USER);
+    nm_l3_config_data_add_route_4(
+        b,
+        NM_PLATFORM_IP4_ROUTE_INIT(.ifindex       = IFINDEX,
+                                   .network       = 0,
+                                   .plen          = 0,
+                                   .gateway       = nmtst_inet4_from_string("192.168.1.1"),
+                                   .metric        = 100,
+                                   .table_coerced = nm_platform_route_table_coerce(100)));
+
+    nm_l3_config_data_seal(a);
+    nm_l3_config_data_seal(b);
+
+    g_assert(nm_l3_config_data_get_best_default_route(a, AF_INET));
+    g_assert(!nm_l3_config_data_get_best_default_route(b, AF_INET));
+
+    g_assert_cmpint(nm_l3_config_data_cmp_full(a, b, NM_L3_CONFIG_CMP_FLAGS_ROUTES_ID), !=, 0);
+    g_assert_cmpint(nm_l3_config_data_cmp_full(b, a, NM_L3_CONFIG_CMP_FLAGS_ROUTES_ID), !=, 0);
+
+    g_assert_cmpint(nm_l3_config_data_cmp_full(a, b, NM_L3_CONFIG_CMP_FLAGS_ROUTES), !=, 0);
+    g_assert_cmpint(nm_l3_config_data_cmp_full(b, a, NM_L3_CONFIG_CMP_FLAGS_ROUTES), !=, 0);
+
+    g_assert_cmpint(nm_l3_config_data_cmp_full(a, b, NM_L3_CONFIG_CMP_FLAGS_ADDRESSES), ==, 0);
+    g_assert_cmpint(nm_l3_config_data_cmp_full(b, a, NM_L3_CONFIG_CMP_FLAGS_ADDRESSES), ==, 0);
+
+    g_assert_cmpint(nm_l3_config_data_cmp_full(a, a, NM_L3_CONFIG_CMP_FLAGS_ALL), ==, 0);
+    g_assert_cmpint(nm_l3_config_data_cmp_full(b, b, NM_L3_CONFIG_CMP_FLAGS_ALL), ==, 0);
+}
+
+/*****************************************************************************/
+
+static void
+test_wifi_utils_parse_ies_mld(void)
+{
+    /* A real Basic Multi-Link element (802.11be) captured from a TP-Link
+     * Deco BE63 link BSS: element ID 255, length 16, element ID extension
+     * 107, Multi-Link Control 0x01b0 (Type 0 = Basic), Common Info Length
+     * 13, MLD MAC ec:75:0c:74:4b:77, then trailing common-info fields. */
+    const guint8      ies_with_mld[] = {0xff,
+                                        0x10,
+                                        0x6b,
+                                        0xb0,
+                                        0x01,
+                                        0x0d,
+                                        0xec,
+                                        0x75,
+                                        0x0c,
+                                        0x74,
+                                        0x4b,
+                                        0x77,
+                                        0x01,
+                                        0x00,
+                                        0x01,
+                                        0x40,
+                                        0x21,
+                                        0x00};
+    const NMEtherAddr expected       = {.ether_addr_octet = {0xec, 0x75, 0x0c, 0x74, 0x4b, 0x77}};
+    /* SSID element (0) + a non-Basic Multi-Link element (Type 1): no MLD. */
+    const guint8 ies_without_mld[] =
+        {0x00, 0x03, 'a', 'b', 'c', 0xff, 0x04, 0x6b, 0x01, 0x00, 0x00};
+    NMEtherAddr mld;
+    gboolean    mld_valid;
+
+    nm_wifi_utils_parse_ies(ies_with_mld,
+                            sizeof(ies_with_mld),
+                            NULL,
+                            NULL,
+                            NULL,
+                            NULL,
+                            &mld,
+                            &mld_valid);
+    g_assert(mld_valid);
+    g_assert(nm_ether_addr_equal(&mld, &expected));
+
+    /* No Basic Multi-Link element: mld_valid must be FALSE and the address
+     * cleared. */
+    nm_wifi_utils_parse_ies(ies_without_mld,
+                            sizeof(ies_without_mld),
+                            NULL,
+                            NULL,
+                            NULL,
+                            NULL,
+                            &mld,
+                            &mld_valid);
+    g_assert(!mld_valid);
+    g_assert(nm_utils_memeqzero(&mld, sizeof(mld)));
+
+    /* Truncated element (claims an MLD but too short) must not parse. */
+    {
+        const guint8 ies_truncated[] = {0xff, 0x05, 0x6b, 0xb0, 0x01, 0x0d, 0xec};
+
+        nm_wifi_utils_parse_ies(ies_truncated,
+                                sizeof(ies_truncated),
+                                NULL,
+                                NULL,
+                                NULL,
+                                NULL,
+                                &mld,
+                                &mld_valid);
+        g_assert(!mld_valid);
+    }
+}
+
+/*****************************************************************************/
+
 NMTST_DEFINE();
 
 int
@@ -2900,6 +3034,11 @@ main(int argc, char **argv)
     g_test_add_func("/core/test_nm_firewall_nft_stdio_mlag", test_nm_firewall_nft_stdio_mlag);
 
     g_test_add_func("/core/general/test_icmp6_checksum", test_icmp6_checksum);
+
+    g_test_add_func("/core/general/test_l3_config_data_cmp_default_routes",
+                    test_l3_config_data_cmp_default_routes);
+
+    g_test_add_func("/core/general/test_wifi_utils_parse_ies_mld", test_wifi_utils_parse_ies_mld);
 
     return g_test_run();
 }

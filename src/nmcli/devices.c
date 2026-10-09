@@ -135,8 +135,8 @@ _metagen_device_status_get_fcn(NMC_META_GENERIC_INFO_GET_FCN_ARGS)
     g_return_val_if_reached(NULL);
 }
 
-const NmcMetaGenericInfo
-    *const metagen_device_status[_NMC_GENERIC_INFO_TYPE_DEVICE_STATUS_NUM + 1] = {
+const NmcMetaGenericInfo *const
+    metagen_device_status[_NMC_GENERIC_INFO_TYPE_DEVICE_STATUS_NUM + 1] = {
 #define _METAGEN_DEVICE_STATUS(type, name) \
     [type] = NMC_META_GENERIC(name, .info_type = type, .get_fcn = _metagen_device_status_get_fcn)
         _METAGEN_DEVICE_STATUS(NMC_GENERIC_INFO_TYPE_DEVICE_STATUS_DEVICE, "DEVICE"),
@@ -254,8 +254,8 @@ _metagen_device_detail_general_get_fcn(NMC_META_GENERIC_INFO_GET_FCN_ARGS)
     g_return_val_if_reached(NULL);
 }
 
-const NmcMetaGenericInfo
-    *const metagen_device_detail_general[_NMC_GENERIC_INFO_TYPE_DEVICE_DETAIL_GENERAL_NUM + 1] = {
+const NmcMetaGenericInfo *const
+    metagen_device_detail_general[_NMC_GENERIC_INFO_TYPE_DEVICE_DETAIL_GENERAL_NUM + 1] = {
 #define _METAGEN_DEVICE_DETAIL_GENERAL(type, name) \
     [type] = NMC_META_GENERIC(name,                \
                               .info_type = type,   \
@@ -494,9 +494,9 @@ _metagen_device_detail_capabilities_get_fcn(NMC_META_GENERIC_INFO_GET_FCN_ARGS)
     g_return_val_if_reached(NULL);
 }
 
-const NmcMetaGenericInfo
-    *const metagen_device_detail_capabilities[_NMC_GENERIC_INFO_TYPE_DEVICE_DETAIL_CAPABILITIES_NUM
-                                              + 1] = {
+const NmcMetaGenericInfo *const
+    metagen_device_detail_capabilities[_NMC_GENERIC_INFO_TYPE_DEVICE_DETAIL_CAPABILITIES_NUM
+                                       + 1] = {
 #define _METAGEN_DEVICE_DETAIL_CAPABILITIES(type, name) \
     [type] = NMC_META_GENERIC(name,                     \
                               .info_type = type,        \
@@ -747,7 +747,7 @@ const NmcMetaGenericInfo *const nmc_fields_dev_wifi_list[] = {
     NMC_META_GENERIC("DBUS-PATH"), /* 18 */
     NULL,
 };
-#define NMC_FIELDS_DEV_WIFI_LIST_COMMON       "IN-USE,BSSID,SSID,MODE,BAND,CHAN,RATE,SIGNAL,BARS,SECURITY"
+#define NMC_FIELDS_DEV_WIFI_LIST_COMMON "IN-USE,BSSID,SSID,MODE,BAND,CHAN,RATE,SIGNAL,BARS,SECURITY"
 #define NMC_FIELDS_DEV_WIFI_LIST_FOR_DEV_LIST "NAME," NMC_FIELDS_DEV_WIFI_LIST_COMMON
 
 const NmcMetaGenericInfo *const nmc_fields_dev_wimax_list[] = {
@@ -1790,12 +1790,12 @@ show_device_info(NMDevice *device, NmCli *nmc)
                     gs_unref_ptrarray GPtrArray *aps        = NULL;
                     int                          info_index = 0;
                     const APInfo                 info       = {
-                                              .nmc          = nmc,
-                                              .p_index      = &info_index,
-                                              .output_flags = NMC_OF_FLAG_SECTION_PREFIX,
-                                              .active_ap    = active_ap,
-                                              .device       = nm_device_get_iface(device),
-                                              .output_data  = out.output_data,
+                        .nmc          = nmc,
+                        .p_index      = &info_index,
+                        .output_flags = NMC_OF_FLAG_SECTION_PREFIX,
+                        .active_ap    = active_ap,
+                        .device       = nm_device_get_iface(device),
+                        .output_data  = out.output_data,
                     };
 
                     aps = sort_access_points(
@@ -3053,10 +3053,10 @@ device_state(NMDevice *device, GParamSpec *pspec, NmCli *nmc)
 
     color = nmc_device_state_to_color(device);
     str   = nmc_colorize(&nmc->nmc_config,
-                       color,
-                       "%s: %s\n",
-                       nm_device_get_iface(device),
-                       gettext(nmc_device_state_to_string_with_external(device)));
+                         color,
+                         "%s: %s\n",
+                         nm_device_get_iface(device),
+                         gettext(nmc_device_state_to_string_with_external(device)));
 
     nmc_print("%s", str);
 }
@@ -3256,12 +3256,12 @@ show_access_point_info(NMDeviceWifi *wifi, NmCli *nmc, NmcOutputData *out)
         gs_unref_ptrarray GPtrArray *aps        = NULL;
         int                          info_index = 0;
         const APInfo                 info       = {
-                                  .nmc          = nmc,
-                                  .p_index      = &info_index,
-                                  .output_flags = 0,
-                                  .active_ap    = active_ap,
-                                  .device       = nm_device_get_iface(NM_DEVICE(wifi)),
-                                  .output_data  = out->output_data,
+            .nmc          = nmc,
+            .p_index      = &info_index,
+            .output_flags = 0,
+            .active_ap    = active_ap,
+            .device       = nm_device_get_iface(NM_DEVICE(wifi)),
+            .output_data  = out->output_data,
         };
 
         aps = sort_access_points(nm_device_wifi_get_access_points(wifi));
@@ -3311,11 +3311,11 @@ wifi_print_aps(NMDeviceWifi                    *wifi,
         if (ap) {
             int          info_index = 0;
             const APInfo info       = {
-                      .nmc          = nmc,
-                      .p_index      = &info_index,
-                      .output_flags = 0,
-                      .device       = nm_device_get_iface(NM_DEVICE(wifi)),
-                      .output_data  = out.output_data,
+                .nmc          = nmc,
+                .p_index      = &info_index,
+                .output_flags = 0,
+                .device       = nm_device_get_iface(NM_DEVICE(wifi)),
+                .output_data  = out.output_data,
             };
 
             /* Add headers (field names) */
@@ -3721,9 +3721,9 @@ do_device_wifi_list(const NMCCommand *cmd, NmCli *nmc, int argc, const char *con
 
         if (timeout_msec > 0) {
             wifi_list_data->last_scan_id     = g_signal_connect(wifi,
-                                                            "notify::" NM_DEVICE_WIFI_LAST_SCAN,
-                                                            G_CALLBACK(wifi_last_scan_updated),
-                                                            wifi_list_data),
+                                                                "notify::" NM_DEVICE_WIFI_LAST_SCAN,
+                                                                G_CALLBACK(wifi_last_scan_updated),
+                                                                wifi_list_data),
             wifi_list_data->scan_cancellable = g_cancellable_new(),
             nm_device_wifi_request_scan_async(wifi,
                                               wifi_list_data->scan_cancellable,
@@ -4834,44 +4834,15 @@ do_device_wifi_rescan(const NMCCommand *cmd, NmCli *nmc, int argc, const char *c
 }
 
 static void
-string_append_mecard(GString *string, const char *tag, const char *text)
-{
-    const char *p;
-    bool        is_hex = TRUE;
-    int         start;
-
-    if (!text)
-        return;
-
-    g_string_append(string, tag);
-    start = string->len;
-
-    for (p = text; *p; p++) {
-        if (!g_ascii_isxdigit(*p))
-            is_hex = FALSE;
-        if (strchr("\\\":;,", *p))
-            g_string_append_c(string, '\\');
-        g_string_append_c(string, *p);
-    }
-
-    if (is_hex) {
-        g_string_insert_c(string, start, '\"');
-        g_string_append_c(string, '\"');
-    }
-    g_string_append_c(string, ';');
-}
-
-static void
 print_wifi_connection(const NmcConfig *nmc_config, NMConnection *connection)
 {
-    NMSettingWireless            *s_wireless;
-    NMSettingWirelessSecurity    *s_wsec;
-    const char                   *key_mgmt = NULL;
-    const char                   *psk      = NULL;
-    const char                   *type     = NULL;
-    GBytes                       *ssid_bytes;
-    gs_free char                 *ssid   = NULL;
-    nm_auto_free_gstring GString *string = NULL;
+    NMSettingWireless         *s_wireless;
+    NMSettingWirelessSecurity *s_wsec;
+    const char                *key_mgmt = NULL;
+    const char                *psk      = NULL;
+    GBytes                    *ssid_bytes;
+    gs_free char              *ssid = NULL;
+    nm_auto_free_secret char  *uri  = NULL;
 
     s_wireless = nm_connection_get_setting_wireless(connection);
     g_return_if_fail(s_wireless);
@@ -4882,9 +4853,6 @@ print_wifi_connection(const NmcConfig *nmc_config, NMConnection *connection)
     g_return_if_fail(ssid);
     nmc_print("SSID: %s\n", ssid);
 
-    string = g_string_sized_new(64);
-    g_string_append(string, "WIFI:");
-
     s_wsec = nm_connection_get_setting_wireless_security(connection);
     if (s_wsec) {
         key_mgmt = nm_setting_wireless_security_get_key_mgmt(s_wsec);
@@ -4892,33 +4860,30 @@ print_wifi_connection(const NmcConfig *nmc_config, NMConnection *connection)
     }
 
     if (key_mgmt == NULL) {
-        type = "nopass";
         nmc_print("%s: %s\n", _("Security"), _("None"));
     } else if (strcmp(key_mgmt, "none") == 0 || strcmp(key_mgmt, "ieee8021x") == 0) {
-        type = "WEP";
         nmc_print("%s: WEP\n", _("Security"));
     } else if (strcmp(key_mgmt, "wpa-none") == 0 || strcmp(key_mgmt, "wpa-psk") == 0
                || strcmp(key_mgmt, "sae") == 0) {
-        type = "WPA";
         nmc_print("%s: WPA\n", _("Security"));
     } else if (strcmp(key_mgmt, "owe") == 0) {
-        type = "nopass";
         nmc_print("%s: OWE\n", _("Security"));
     }
 
-    if (psk)
+    if (psk && psk[0]) {
         nmc_print("%s: %s\n", _("Password"), psk);
+    } else if (nmc_wifi_key_mgmt_uses_psk(key_mgmt)) {
+        /* A QR code for a secured network without its password connects to
+         * nothing, so don't print one. */
+        nmc_printerr(
+            _("Warning: cannot read the Wi-Fi password due to insufficient privileges.\n"));
+        return;
+    }
 
-    string_append_mecard(string, "T:", type);
-    string_append_mecard(string, "S:", ssid);
-    string_append_mecard(string, "P:", psk);
+    uri = nmc_wifi_qr_uri_new(ssid, key_mgmt, psk, nm_setting_wireless_get_hidden(s_wireless));
 
-    if (nm_setting_wireless_get_hidden(s_wireless))
-        g_string_append(string, "H:true;");
-
-    g_string_append_c(string, ';');
     if (nmc_config->use_colors)
-        nmc_print_qrcode(string->str);
+        nmc_print_qrcode(uri);
 
     nmc_print("\n");
 }

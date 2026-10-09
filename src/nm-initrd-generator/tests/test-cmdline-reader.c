@@ -362,6 +362,47 @@ test_if_auto_with_mtu(void)
 }
 
 static void
+test_ip_required_timeout(void)
+{
+    struct {
+        const char *const *cmdline;
+        int                timeout_msec;
+    } data[] = {
+        {NM_MAKE_STRV("ip=dhcp,dhcp6"), NMI_IP_REQUIRED_TIMEOUT_MSEC},
+        {NM_MAKE_STRV("ip=dhcp,dhcp6", "rd.net.timeout.ip-required=0"), 0},
+        {NM_MAKE_STRV("ip=dhcp,dhcp6", "rd.net.timeout.ip-required=5"), 5000},
+        {NM_MAKE_STRV("ip=dhcp,dhcp6", "rd.net.timeout.ip-required=foobar"),
+         NMI_IP_REQUIRED_TIMEOUT_MSEC},
+        {NM_MAKE_STRV("ip=dhcp,dhcp6", "rd.net.timeout.ip-required=infinity"), G_MAXINT32},
+        {NM_MAKE_STRV("ip=eth0:dhcp,dhcp6", "rd.net.timeout.ip-required=3"), 3000},
+    };
+    guint i;
+
+    for (i = 0; i < G_N_ELEMENTS(data); i++) {
+        gs_unref_hashtable GHashTable *connections = NULL;
+        GList                         *values      = NULL;
+        NMConnection                  *connection;
+        NMSettingIPConfig             *s_ip4;
+        NMSettingIPConfig             *s_ip6;
+
+        connections = _parse_cons(data[i].cmdline);
+        g_assert_cmpint(g_hash_table_size(connections), ==, 1);
+        values     = g_hash_table_get_values(connections);
+        connection = values->data;
+        g_assert(NM_IS_CONNECTION(connection));
+        g_list_free(values);
+
+        s_ip4 = nm_connection_get_setting_ip4_config(connection);
+        g_assert(s_ip4);
+        g_assert_cmpint(nm_setting_ip_config_get_required_timeout(s_ip4), ==, data[i].timeout_msec);
+
+        s_ip6 = nm_connection_get_setting_ip6_config(connection);
+        g_assert(s_ip6);
+        g_assert_cmpint(nm_setting_ip_config_get_required_timeout(s_ip6), ==, data[i].timeout_msec);
+    }
+}
+
+static void
 test_if_dhcp6(void)
 {
     const char *const            *ARGV       = NM_MAKE_STRV("ip=eth1:dhcp6");
@@ -424,7 +465,7 @@ test_if_ip4_manual(void)
     gs_unref_hashtable GHashTable *connections = NULL;
     const char *const             *ARGV = NM_MAKE_STRV("ip=192.0.2.2::192.0.2.1:255.255.255.0:"
                                                        "hostname0.example.com:eth3:none:192.0.2.53",
-                                           "ip=203.0.113.2::203.0.113.1:26:"
+                                                       "ip=203.0.113.2::203.0.113.1:26:"
                                                        "hostname1.example.com:eth4");
     NMConnection                  *connection;
     NMSettingConnection           *s_con;
@@ -506,7 +547,7 @@ test_if_ip4_auto(void)
     gs_unref_hashtable GHashTable *connections = NULL;
     const char *const             *ARGV        = NM_MAKE_STRV("ip=172.25.1.1::172.25.1.2:24:"
                                                               "myhostname:eth0:dhcp",
-                                           "rd.net.timeout.dhcp=10");
+                                                              "rd.net.timeout.dhcp=10");
     NMConnection                  *connection;
     NMSettingConnection           *s_con;
     NMSettingIPConfig             *s_ip4;
@@ -597,14 +638,14 @@ static void
 test_if_ip6_manual(void)
 {
     gs_unref_hashtable GHashTable *connections = NULL;
-    const char *const             *ARGV = NM_MAKE_STRV("ip=[2001:0db8::02]/56::[2001:0db8::01]::"
-                                                       "hostname0.example.com:eth4::[2001:0db8::53]");
-    NMConnection                  *connection;
-    NMSettingIPConfig             *s_ip4;
-    NMSettingIPConfig             *s_ip6;
-    NMIPAddress                   *ip_addr;
-    gs_free char                  *hostname            = NULL;
-    gint64                         carrier_timeout_sec = 0;
+    const char *const *ARGV = NM_MAKE_STRV("ip=[2001:0db8::02]/56::[2001:0db8::01]::"
+                                           "hostname0.example.com:eth4::[2001:0db8::53]");
+    NMConnection      *connection;
+    NMSettingIPConfig *s_ip4;
+    NMSettingIPConfig *s_ip6;
+    NMIPAddress       *ip_addr;
+    gs_free char      *hostname            = NULL;
+    gint64             carrier_timeout_sec = 0;
 
     connections = _parse(ARGV, &hostname, &carrier_timeout_sec, NULL, NULL, NULL);
     g_assert_cmpint(g_hash_table_size(connections), ==, 1);
@@ -643,9 +684,9 @@ test_if_off(void)
 {
     gs_unref_hashtable GHashTable *connections = NULL;
     const char *const             *ARGV        = NM_MAKE_STRV("ip=off",
-                                           "ip=ens3:off",
-                                           "ip=10.0.0.8:::::ens4:off",
-                                           "ip=[2001:DB8::8]:::::ens5:off");
+                                                              "ip=ens3:off",
+                                                              "ip=10.0.0.8:::::ens4:off",
+                                                              "ip=[2001:DB8::8]:::::ens5:off");
     NMConnection                  *connection;
     NMSettingIPConfig             *s_ip4;
     NMSettingIPConfig             *s_ip6;
@@ -684,15 +725,15 @@ static void
 test_if_mac_ifname(void)
 {
     gs_unref_hashtable GHashTable *connections = NULL;
-    const char *const             *ARGV = NM_MAKE_STRV("ip=[2001:0db8::42]/64::[2001:0db8::01]::"
-                                                       "hostname0:00-11-22-33-44-55::[2001:0db8::53]");
-    NMConnection                  *connection;
-    NMSettingIPConfig             *s_ip4;
-    NMSettingIPConfig             *s_ip6;
-    NMSettingWired                *s_wired;
-    NMIPAddress                   *ip_addr;
-    gs_free char                  *hostname            = NULL;
-    gint64                         carrier_timeout_sec = 0;
+    const char *const *ARGV = NM_MAKE_STRV("ip=[2001:0db8::42]/64::[2001:0db8::01]::"
+                                           "hostname0:00-11-22-33-44-55::[2001:0db8::53]");
+    NMConnection      *connection;
+    NMSettingIPConfig *s_ip4;
+    NMSettingIPConfig *s_ip6;
+    NMSettingWired    *s_wired;
+    NMIPAddress       *ip_addr;
+    gs_free char      *hostname            = NULL;
+    gint64             carrier_timeout_sec = 0;
 
     connections = _parse(ARGV, &hostname, &carrier_timeout_sec, NULL, NULL, NULL);
     g_assert_cmpint(g_hash_table_size(connections), ==, 1);
@@ -885,21 +926,21 @@ static void
 test_some_more(void)
 {
     gs_unref_hashtable GHashTable *connections = NULL;
-    const char *const             *ARGV        = NM_MAKE_STRV("bootdev=eth1",
-                                           "hail",
-                                           "nameserver=[2001:DB8:3::53]",
-                                           "satan",
-                                           "nameserver=192.0.2.53",
-                                           "worship",
-                                           "doom",
-                                           "rd.peerdns=0",
-                                           "rd.route=[2001:DB8:3::/48]:[2001:DB8:2::1]:ens10");
-    NMConnection                  *connection;
-    NMSettingConnection           *s_con;
-    NMSettingWired                *s_wired;
-    NMSettingIPConfig             *s_ip4;
-    NMSettingIPConfig             *s_ip6;
-    NMIPRoute                     *ip_route;
+    const char *const   *ARGV = NM_MAKE_STRV("bootdev=eth1",
+                                             "hail",
+                                             "nameserver=[2001:DB8:3::53]",
+                                             "satan",
+                                             "nameserver=192.0.2.53",
+                                             "worship",
+                                             "doom",
+                                             "rd.peerdns=0",
+                                             "rd.route=[2001:DB8:3::/48]:[2001:DB8:2::1]:ens10");
+    NMConnection        *connection;
+    NMSettingConnection *s_con;
+    NMSettingWired      *s_wired;
+    NMSettingIPConfig   *s_ip4;
+    NMSettingIPConfig   *s_ip6;
+    NMIPRoute           *ip_route;
 
     connections = _parse_cons(ARGV);
     g_assert_cmpint(g_hash_table_size(connections), ==, 2);
@@ -975,9 +1016,9 @@ static void
 test_bond(void)
 {
     gs_unref_hashtable GHashTable *connections = NULL;
-    const char *const             *ARGV        = NM_MAKE_STRV("rd.route=192.0.2.53::bond0",
-                                           "bond=bond0:eth0,eth1:mode=balance-rr:9000",
-                                           "nameserver=203.0.113.53");
+    const char *const             *ARGV = NM_MAKE_STRV("rd.route=192.0.2.53::bond0",
+                                                       "bond=bond0:eth0,eth1:mode=balance-rr:9000",
+                                                       "nameserver=203.0.113.53");
     NMConnection                  *connection;
     NMSettingConnection           *s_con;
     NMSettingIPConfig             *s_ip4;
@@ -1342,8 +1383,8 @@ test_bridge(void)
 {
     gs_unref_hashtable GHashTable *connections = NULL;
     const char *const             *ARGV        = NM_MAKE_STRV("bridge=bridge0:eth0,eth1",
-                                           "rd.route=192.0.2.53::bridge0",
-                                           "rd.net.timeout.dhcp=10");
+                                                              "rd.route=192.0.2.53::bridge0",
+                                                              "rd.net.timeout.dhcp=10");
     NMConnection                  *connection;
     NMSettingConnection           *s_con;
     NMSettingIPConfig             *s_ip4;
@@ -1772,14 +1813,14 @@ static void
 test_vlan_over_bond(void)
 {
     const char *const *ARGV0  = NM_MAKE_STRV("ip=1.2.3.4:::24::vlan1:none",
-                                            "bond=bond2:ens3,ens4:mode=active-backup",
-                                            "vlan=vlan1:bond2");
+                                             "bond=bond2:ens3,ens4:mode=active-backup",
+                                             "vlan=vlan1:bond2");
     const char *const *ARGV1  = NM_MAKE_STRV("vlan=vlan1:bond2",
-                                            "ip=1.2.3.4:::24::vlan1:none",
-                                            "bond=bond2:ens3,ens4:mode=active-backup");
+                                             "ip=1.2.3.4:::24::vlan1:none",
+                                             "bond=bond2:ens3,ens4:mode=active-backup");
     const char *const *ARGV2  = NM_MAKE_STRV("bond=bond2:ens3,ens4:mode=active-backup",
-                                            "ip=1.2.3.4:::24::vlan1:none",
-                                            "vlan=vlan1:bond2");
+                                             "ip=1.2.3.4:::24::vlan1:none",
+                                             "vlan=vlan1:bond2");
     const char *const *ARGV[] = {ARGV0, ARGV1, ARGV2};
     guint              i;
 
@@ -2303,10 +2344,10 @@ static void
 test_neednet_args(void)
 {
     gs_unref_hashtable GHashTable *connections = NULL;
-    const char *const             *ARGV        = NM_MAKE_STRV("rd.neednet",
-                                           "ip=eno1:dhcp",
-                                           "ip=172.25.1.100::172.25.1.1:24::eno2",
-                                           "bridge=br0:eno3");
+    const char *const             *ARGV = NM_MAKE_STRV("rd.neednet",
+                                                       "ip=eno1:dhcp",
+                                                       "ip=172.25.1.100::172.25.1.1:24::eno2",
+                                                       "bridge=br0:eno3");
     NMConnection                  *connection;
     NMSettingConnection           *s_con;
 
@@ -2651,17 +2692,17 @@ test_carrier_timeout(void)
 static void
 test_global_dns(void)
 {
-    gs_unref_hashtable GHashTable *connections        = NULL;
-    const char *const             *ARGV               = NM_MAKE_STRV("rd.net.dns=dns+tls://8.8.8.8",
-                                           "rd.net.dns=1.1.1.1",
-                                           "rd.net.dns=foobar",
-                                           "rd.net.dns=dns+tls://[fd01::1]:35#name",
-                                           "rd.net.dns-backend=dnsconfd",
-                                           "rd.net.dns-resolve-mode=exclusive");
-    gs_free char                  *hostname           = NULL;
-    gs_strfreev char             **global_dns_servers = NULL;
-    gs_free char                  *dns_backend        = NULL;
-    gs_free char                  *dns_resolve_mode   = NULL;
+    gs_unref_hashtable GHashTable *connections = NULL;
+    const char *const             *ARGV     = NM_MAKE_STRV("rd.net.dns=dns+tls://8.8.8.8",
+                                                           "rd.net.dns=1.1.1.1",
+                                                           "rd.net.dns=foobar",
+                                                           "rd.net.dns=dns+tls://[fd01::1]:35#name",
+                                                           "rd.net.dns-backend=dnsconfd",
+                                                           "rd.net.dns-resolve-mode=exclusive");
+    gs_free char                  *hostname = NULL;
+    gs_strfreev char             **global_dns_servers  = NULL;
+    gs_free char                  *dns_backend         = NULL;
+    gs_free char                  *dns_resolve_mode    = NULL;
     gint64                         carrier_timeout_sec = 0;
 
     NMTST_EXPECT_NM_WARN("cmdline-reader: rd.net.dns: invalid server 'foobar':*");
@@ -3001,6 +3042,7 @@ main(int argc, char **argv)
     g_test_add_func("/initrd/cmdline/dhcp_with_mtu", test_dhcp_with_mtu);
     g_test_add_func("/initrd/cmdline/dhcp_timeout", test_dhcp_timeout);
     g_test_add_func("/initrd/cmdline/if_auto_with_mtu", test_if_auto_with_mtu);
+    g_test_add_func("/initrd/cmdline/ip_required_timeout", test_ip_required_timeout);
     g_test_add_func("/initrd/cmdline/if_dhcp6", test_if_dhcp6);
     g_test_add_func("/initrd/cmdline/if_auto_with_mtu_and_mac", test_if_auto_with_mtu_and_mac);
     g_test_add_func("/initrd/cmdline/if_ip4_manual", test_if_ip4_manual);

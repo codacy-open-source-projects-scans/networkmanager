@@ -563,7 +563,7 @@ _startup_complete_check_is_ready(NMSettings           *self,
         if (!nm_device_check_connection_compatible(device, conn, TRUE, &error)
             && !g_error_matches(error,
                                 NM_UTILS_ERROR,
-                                NM_UTILS_ERROR_CONNECTION_AVAILABLE_DISALLOWED))
+                                NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_DISALLOWED))
             continue;
 
         return TRUE;
@@ -1507,10 +1507,6 @@ _plugin_connections_reload(NMSettings *self)
 {
     NMSettingsPrivate *priv = NM_SETTINGS_GET_PRIVATE(self);
     GSList            *iter_plugin;
-    GHashTableIter     iter_entry;
-    SettConnEntry     *entry;
-    gboolean           warned = FALSE;
-    gboolean           migrate;
 
     for (iter_plugin = priv->plugins; iter_plugin; iter_plugin = iter_plugin->next) {
         nm_settings_plugin_reload_connections(iter_plugin->data,
@@ -1530,51 +1526,6 @@ _plugin_connections_reload(NMSettings *self)
 
     for (iter_plugin = priv->plugins; iter_plugin; iter_plugin = iter_plugin->next)
         nm_settings_plugin_load_connections_done(iter_plugin->data);
-
-    migrate = nm_config_data_get_value_boolean(nm_config_get_data(priv->config),
-                                               NM_CONFIG_KEYFILE_GROUP_MAIN,
-                                               NM_CONFIG_KEYFILE_KEY_MAIN_MIGRATE_IFCFG_RH,
-                                               NM_CONFIG_DEFAULT_MAIN_MIGRATE_IFCFG_RH_BOOL);
-
-    g_hash_table_iter_init(&iter_entry, priv->sce_idx);
-    while (g_hash_table_iter_next(&iter_entry, (gpointer *) &entry, NULL)) {
-        const char *plugin;
-
-        plugin = nm_settings_plugin_get_plugin_name(nm_settings_storage_get_plugin(entry->storage));
-
-        if (nm_streq0(plugin, "ifcfg-rh")) {
-            if (!warned) {
-                if (migrate) {
-                    nm_log_warn(
-                        LOGD_SETTINGS,
-                        "Warning: connections were found in ifcfg-rh format and the "
-                        "\"main.migrate-ifcfg-rh\" option is enabled. Those connections will be "
-                        "migrated to keyfile. To convert them back, disable the option and then "
-                        "run \"nmcli connection migrate --plugin ifcfg-rh $UUID\"");
-                } else {
-                    nm_log_info(
-                        LOGD_SETTINGS,
-                        "Warning: the ifcfg-rh plugin is deprecated, please migrate connections "
-                        "to the keyfile format using \"nmcli connection migrate\"");
-                }
-                warned = TRUE;
-            }
-            if (migrate) {
-                _LOGW("migrating connection %s ('%s') from ifcfg-rh to keyfile",
-                      entry->uuid,
-                      nm_settings_connection_get_id(entry->sett_conn));
-                nm_settings_connection_update(entry->sett_conn,
-                                              "keyfile",
-                                              NULL,
-                                              NM_SETTINGS_CONNECTION_PERSIST_MODE_KEEP,
-                                              NM_SETTINGS_CONNECTION_INT_FLAGS_NONE,
-                                              NM_SETTINGS_CONNECTION_INT_FLAGS_NONE,
-                                              NM_SETTINGS_CONNECTION_UPDATE_REASON_NONE,
-                                              "migrate-ifcfg-rh",
-                                              NULL);
-            }
-        }
-    }
 }
 
 /*****************************************************************************/
@@ -1965,8 +1916,6 @@ nm_settings_add_connection(NMSettings                     *self,
             ? nm_settings_storage_get_filename_for_shadowed_storage(shadowed_storage)
             : NULL;
 
-again_add_connection:
-
     if (!update_storage) {
         success = _add_connection_to_first_plugin(self,
                                                   plugin,
@@ -1991,21 +1940,6 @@ again_add_connection:
                                                &new_storage,
                                                &new_connection,
                                                &local);
-        if (!success) {
-            if (!NMS_IS_KEYFILE_STORAGE(update_storage)) {
-                /* hm, the intended storage is not keyfile (it's ifcfg-rh). This settings
-                 * plugin may not support the new connection. So step back and retry adding
-                 * the profile anew. */
-                _LOGT("failure to add profile as existing storage \"%s\": %s",
-                      nm_settings_storage_get_filename(update_storage),
-                      local->message);
-                update_storage = NULL;
-                g_clear_object(&shadowed_storage);
-                shadowed_storage_filename = NULL;
-                g_clear_error(&local);
-                goto again_add_connection;
-            }
-        }
     }
 
     if (!success) {
@@ -2934,6 +2868,8 @@ impl_settings_add_connection2(NMDBusObject                      *obj,
 
     g_variant_iter_init(&iter, args);
     while (g_variant_iter_next(&iter, "{&sv}", &args_name, &args_value)) {
+        gs_unref_variant GVariant *args_value_unref = args_value;
+
         if (plugin == NULL && nm_streq(args_name, "plugin")
             && g_variant_is_of_type(args_value, G_VARIANT_TYPE_STRING)) {
             plugin = g_variant_dup_string(args_value, NULL);
@@ -3154,19 +3090,6 @@ nm_settings_get_connection_by_uuid(NMSettings *self, const char *uuid)
     g_return_val_if_fail(uuid != NULL, NULL);
 
     return _sett_conn_entry_get_conn(_sett_conn_entries_get(self, uuid));
-}
-
-const char *
-nm_settings_get_dbus_path_for_uuid(NMSettings *self, const char *uuid)
-{
-    NMSettingsConnection *sett_conn;
-
-    sett_conn = nm_settings_get_connection_by_uuid(self, uuid);
-
-    if (!sett_conn)
-        return NULL;
-
-    return nm_dbus_object_get_path(NM_DBUS_OBJECT(sett_conn));
 }
 
 static void
@@ -3559,7 +3482,7 @@ load_plugins(NMSettings *self, const char *const *plugins, GError **error)
             continue;
         }
 
-        if (NM_IN_STRSET(pname, "ifcfg-suse", "ifnet", "ibft", "no-ibft")) {
+        if (NM_IN_STRSET(pname, "ifcfg-rh", "ifcfg-suse", "ifnet", "ibft", "no-ibft")) {
             _LOGW("skipping obsolete plugin %s", pname);
             continue;
         }
@@ -4106,10 +4029,10 @@ nm_settings_start(NMSettings *self, GError **error)
     priv->hostname_manager = g_object_ref(nm_hostname_manager_get());
 
     priv->kf_db_timestamps  = nm_key_file_db_new(NMSTATEDIR "/timestamps",
-                                                "timestamps",
-                                                _kf_db_log_fcn,
-                                                _kf_db_got_dirty_fcn,
-                                                self);
+                                                 "timestamps",
+                                                 _kf_db_log_fcn,
+                                                 _kf_db_got_dirty_fcn,
+                                                 self);
     priv->kf_db_seen_bssids = nm_key_file_db_new(NMSTATEDIR "/seen-bssids",
                                                  "seen-bssids",
                                                  _kf_db_log_fcn,
@@ -4126,9 +4049,6 @@ nm_settings_start(NMSettings *self, GError **error)
             return FALSE;
     } else {
         add_plugin_keyfile(self);
-#if WITH_CONFIG_PLUGIN_IFCFG_RH
-        add_plugin_load_file(self, "ifcfg-rh", TRUE, NULL);
-#endif
 #if WITH_CONFIG_PLUGIN_IFUPDOWN
         add_plugin_load_file(self, "ifupdown", TRUE, NULL);
 #endif
@@ -4429,7 +4349,7 @@ static const NMDBusInterfaceInfoExtended interface_info_settings = {
                         NM_DEFINE_GDBUS_ARG_INFOS(NM_DEFINE_GDBUS_ARG_INFO("hostname", "s"), ), ),
                 .handle = impl_settings_save_hostname, ), ),
         .signals    = NM_DEFINE_GDBUS_SIGNAL_INFOS(&signal_info_new_connection,
-                                                &signal_info_connection_removed, ),
+                                                   &signal_info_connection_removed, ),
         .properties = NM_DEFINE_GDBUS_PROPERTY_INFOS(
             NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE("Connections",
                                                            "ao",

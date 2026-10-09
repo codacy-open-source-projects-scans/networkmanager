@@ -118,14 +118,14 @@ nl80211_send_and_recv(NMWifiUtilsNl80211 *self,
     int                err;
     int                done = 0;
     const struct nl_cb cb   = {
-          .err_cb     = error_handler,
-          .err_arg    = &done,
-          .finish_cb  = finish_handler,
-          .finish_arg = &done,
-          .ack_cb     = ack_handler,
-          .ack_arg    = &done,
-          .valid_cb   = valid_handler,
-          .valid_arg  = valid_data,
+        .err_cb     = error_handler,
+        .err_arg    = &done,
+        .finish_cb  = finish_handler,
+        .finish_arg = &done,
+        .ack_cb     = ack_handler,
+        .ack_arg    = &done,
+        .valid_cb   = valid_handler,
+        .valid_arg  = valid_data,
     };
 
     g_return_val_if_fail(msg != NULL, -ENOMEM);
@@ -414,7 +414,7 @@ nl80211_xbm_to_percent(gint32 xbm, guint32 divisor)
 #define SIGNAL_MAX_DBM  -20
 
     xbm /= divisor;
-    xbm = CLAMP(xbm, NOISE_FLOOR_DBM, SIGNAL_MAX_DBM);
+    xbm = NM_CLAMP(xbm, NOISE_FLOOR_DBM, SIGNAL_MAX_DBM);
 
     return 100
            - 70

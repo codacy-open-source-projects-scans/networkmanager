@@ -162,7 +162,7 @@ test_config_simple(void)
     g_assert_cmpstr(nm_config_data_get_config_main_file(nm_config_get_data_orig(config)),
                     ==,
                     TEST_DIR "/NetworkManager.conf");
-    g_assert_cmpstr(_config_get_dhcp_client_a(config), ==, "dhclient");
+    g_assert_cmpstr(_config_get_dhcp_client_a(config), ==, "internal");
     g_assert_cmpstr(nm_config_get_log_level(config), ==, "INFO");
     g_assert_cmpint(nm_config_data_get_connectivity_interval(nm_config_get_data_orig(config)),
                     ==,
@@ -297,7 +297,7 @@ test_config_override(void)
     g_assert_cmpstr(nm_config_data_get_config_main_file(nm_config_get_data_orig(config)),
                     ==,
                     TEST_DIR "/NetworkManager.conf");
-    g_assert_cmpstr(_config_get_dhcp_client_a(config), ==, "dhclient");
+    g_assert_cmpstr(_config_get_dhcp_client_a(config), ==, "internal");
     g_assert_cmpstr(nm_config_get_log_level(config), ==, "INFO");
     g_assert_cmpint(nm_config_data_get_connectivity_interval(nm_config_get_data_orig(config)),
                     ==,
@@ -527,12 +527,12 @@ test_config_connectivity_check(void)
 
     g_assert(g_file_set_contents(CONFIG_INTERN, "", 0, NULL));
     config       = setup_config(NULL,
-                          TEST_DIR "/NetworkManager.conf",
-                          CONFIG_INTERN,
-                          NULL,
-                          "/no/such/dir",
-                          "",
-                          NULL);
+                                TEST_DIR "/NetworkManager.conf",
+                                CONFIG_INTERN,
+                                NULL,
+                                "/no/such/dir",
+                                "",
+                                NULL);
     connectivity = nm_connectivity_get();
 
     g_assert(nm_connectivity_check_enabled(connectivity));

@@ -12,12 +12,12 @@
 #include "nm-connection.h"
 #include "libnm-base/nm-base.h"
 
-#define NM_TYPE_WIFI_AP            (nm_wifi_ap_get_type())
-#define NM_WIFI_AP(obj)            (_NM_G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_WIFI_AP, NMWifiAP))
-#define NM_WIFI_AP_CLASS(klass)    (G_TYPE_CHECK_CLASS_CAST((klass), NM_TYPE_WIFI_AP, NMWifiAPClass))
-#define NM_IS_WIFI_AP(obj)         (G_TYPE_CHECK_INSTANCE_TYPE((obj), NM_TYPE_WIFI_AP))
+#define NM_TYPE_WIFI_AP         (nm_wifi_ap_get_type())
+#define NM_WIFI_AP(obj)         (_NM_G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_WIFI_AP, NMWifiAP))
+#define NM_WIFI_AP_CLASS(klass) (G_TYPE_CHECK_CLASS_CAST((klass), NM_TYPE_WIFI_AP, NMWifiAPClass))
+#define NM_IS_WIFI_AP(obj)      (G_TYPE_CHECK_INSTANCE_TYPE((obj), NM_TYPE_WIFI_AP))
 #define NM_IS_WIFI_AP_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE((klass), NM_TYPE_WIFI_AP))
-#define NM_WIFI_AP_GET_CLASS(obj)  (G_TYPE_INSTANCE_GET_CLASS((obj), NM_TYPE_WIFI_AP, NMWifiAPClass))
+#define NM_WIFI_AP_GET_CLASS(obj) (G_TYPE_INSTANCE_GET_CLASS((obj), NM_TYPE_WIFI_AP, NMWifiAPClass))
 
 #define NM_WIFI_AP_FLAGS       "flags"
 #define NM_WIFI_AP_WPA_FLAGS   "wpa-flags"
@@ -71,6 +71,7 @@ gboolean               nm_wifi_ap_set_ssid(NMWifiAP *ap, GBytes *ssid);
 const char            *nm_wifi_ap_get_address(const NMWifiAP *ap);
 gboolean               nm_wifi_ap_set_address(NMWifiAP *ap, const char *addr);
 gboolean               nm_wifi_ap_set_address_bin(NMWifiAP *ap, const NMEtherAddr *addr);
+gboolean               nm_wifi_ap_get_mld_address(const NMWifiAP *ap, NMEtherAddr *out_mld_addr);
 _NM80211Mode           nm_wifi_ap_get_mode(NMWifiAP *ap);
 gboolean               nm_wifi_ap_is_hotspot(NMWifiAP *ap);
 gint8                  nm_wifi_ap_get_strength(NMWifiAP *ap);

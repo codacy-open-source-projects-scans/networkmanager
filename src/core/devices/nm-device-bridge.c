@@ -74,7 +74,7 @@ check_connection_available(NMDevice                      *device,
 
         if (!nm_bt_vtable_network_server) {
             nm_utils_error_set_literal(error,
-                                       NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+                                       NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_OTHER,
                                        "bluetooth plugin not available to activate NAP profile");
             return FALSE;
         }
@@ -87,12 +87,12 @@ check_connection_available(NMDevice                      *device,
                                                                                     : NULL)) {
             if (bdaddr)
                 nm_utils_error_set(error,
-                                   NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+                                   NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_OTHER,
                                    "no suitable NAP device \"%s\" available",
                                    bdaddr);
             else
                 nm_utils_error_set_literal(error,
-                                           NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+                                           NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_OTHER,
                                            "no suitable NAP device available");
             return FALSE;
         }
@@ -119,7 +119,7 @@ check_connection_compatible(NMDevice     *device,
         s_bridge = nm_connection_get_setting_bridge(connection);
         if (!s_bridge) {
             nm_utils_error_set_literal(error,
-                                       NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+                                       NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_OTHER,
                                        "missing bridge setting for bluetooth NAP profile");
             return FALSE;
         }
@@ -141,7 +141,7 @@ check_connection_compatible(NMDevice     *device,
         hw_addr = nm_device_get_hw_address(device);
         if (!hw_addr || !nm_utils_hwaddr_matches(hw_addr, -1, mac_address, -1)) {
             nm_utils_error_set_literal(error,
-                                       NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+                                       NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_OTHER,
                                        "mac address mismatches");
             return FALSE;
         }
@@ -502,8 +502,8 @@ update_connection(NMDevice *device, NMConnection *connection)
         GParamSpec                 *pspec;
 
         str   = nm_platform_sysctl_controller_get_option(nm_device_get_platform(device),
-                                                       ifindex,
-                                                       option->sysname);
+                                                         ifindex,
+                                                         option->sysname);
         pspec = g_object_class_find_property(G_OBJECT_GET_CLASS(s_bridge), option->name);
 
         if (!stp_value && option->only_with_stp)
@@ -855,9 +855,9 @@ _platform_lnk_bridge_init_from_setting(NMSettingBridge *s_bridge, NMPlatformLnkB
         .forward_delay = _DEFAULT_IF_ZERO(nm_setting_bridge_get_forward_delay(s_bridge) * 100u,
                                           NM_BRIDGE_FORWARD_DELAY_DEF_SYS),
         .hello_time    = _DEFAULT_IF_ZERO(nm_setting_bridge_get_hello_time(s_bridge) * 100u,
-                                       NM_BRIDGE_HELLO_TIME_DEF_SYS),
+                                          NM_BRIDGE_HELLO_TIME_DEF_SYS),
         .max_age       = _DEFAULT_IF_ZERO(nm_setting_bridge_get_max_age(s_bridge) * 100u,
-                                    NM_BRIDGE_MAX_AGE_DEF_SYS),
+                                          NM_BRIDGE_MAX_AGE_DEF_SYS),
         .ageing_time   = nm_setting_bridge_get_ageing_time(s_bridge) * 100u,
         .stp_state     = nm_setting_bridge_get_stp(s_bridge),
         .priority      = nm_setting_bridge_get_priority(s_bridge),

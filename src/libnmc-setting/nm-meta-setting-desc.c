@@ -1103,13 +1103,13 @@ _get_fcn_gobject_enum(ARGS_GET_FCN)
         format_numeric_hex = NM_FLAGS_HAS(property_info->property_typ_data->typ_flags,
                                           NM_META_PROPERTY_TYP_FLAG_ENUM_GET_PRETTY_NUMERIC_HEX);
         format_numeric     = format_numeric_hex
-                         || NM_FLAGS_HAS(property_info->property_typ_data->typ_flags,
-                                         NM_META_PROPERTY_TYP_FLAG_ENUM_GET_PRETTY_NUMERIC);
-        format_text_l10n = NM_FLAGS_HAS(property_info->property_typ_data->typ_flags,
-                                        NM_META_PROPERTY_TYP_FLAG_ENUM_GET_PRETTY_TEXT_L10N);
-        format_text      = format_text_l10n
-                      || NM_FLAGS_HAS(property_info->property_typ_data->typ_flags,
-                                      NM_META_PROPERTY_TYP_FLAG_ENUM_GET_PRETTY_TEXT);
+                             || NM_FLAGS_HAS(property_info->property_typ_data->typ_flags,
+                                             NM_META_PROPERTY_TYP_FLAG_ENUM_GET_PRETTY_NUMERIC);
+        format_text_l10n   = NM_FLAGS_HAS(property_info->property_typ_data->typ_flags,
+                                          NM_META_PROPERTY_TYP_FLAG_ENUM_GET_PRETTY_TEXT_L10N);
+        format_text        = format_text_l10n
+                             || NM_FLAGS_HAS(property_info->property_typ_data->typ_flags,
+                                             NM_META_PROPERTY_TYP_FLAG_ENUM_GET_PRETTY_TEXT);
     } else if (property_info->property_typ_data && get_type != NM_META_ACCESSOR_GET_TYPE_PRETTY
                && NM_FLAGS_ANY(property_info->property_typ_data->typ_flags,
                                NM_META_PROPERTY_TYP_FLAG_ENUM_GET_PARSABLE_NUMERIC
@@ -1118,10 +1118,10 @@ _get_fcn_gobject_enum(ARGS_GET_FCN)
         format_numeric_hex = NM_FLAGS_HAS(property_info->property_typ_data->typ_flags,
                                           NM_META_PROPERTY_TYP_FLAG_ENUM_GET_PARSABLE_NUMERIC_HEX);
         format_numeric     = format_numeric
-                         && NM_FLAGS_HAS(property_info->property_typ_data->typ_flags,
-                                         NM_META_PROPERTY_TYP_FLAG_ENUM_GET_PARSABLE_NUMERIC);
-        format_text = NM_FLAGS_HAS(property_info->property_typ_data->typ_flags,
-                                   NM_META_PROPERTY_TYP_FLAG_ENUM_GET_PARSABLE_TEXT);
+                             && NM_FLAGS_HAS(property_info->property_typ_data->typ_flags,
+                                             NM_META_PROPERTY_TYP_FLAG_ENUM_GET_PARSABLE_NUMERIC);
+        format_text        = NM_FLAGS_HAS(property_info->property_typ_data->typ_flags,
+                                          NM_META_PROPERTY_TYP_FLAG_ENUM_GET_PARSABLE_TEXT);
     } else if (get_type == NM_META_ACCESSOR_GET_TYPE_PRETTY) {
         /* by default, output in format "%u (%s)" (with hex for flags and l10n). */
         format_numeric             = TRUE;
@@ -5966,14 +5966,23 @@ static const NMMetaPropertyInfo *const property_infos_DCB[] = {
     NULL
 };
 
-#define PROPERTY_INFO_ETHTOOL(xname) \
-    PROPERTY_INFO (NM_ETHTOOL_OPTNAME_##xname, NULL, \
+#define PROPERTY_INFO_ETHTOOL_DOC(xname, doc) \
+    PROPERTY_INFO (NM_ETHTOOL_OPTNAME_##xname, doc, \
         .property_type = &_pt_ethtool, \
         .hide_if_default = TRUE, \
         .property_typ_data = DEFINE_PROPERTY_TYP_DATA_SUBTYPE (ethtool, \
             .ethtool_id = NM_ETHTOOL_ID_##xname, \
         ), \
     )
+
+/* Offload features are named exactly as the kernel network-device feature they
+ * toggle, so a single shared description avoids restating each name. */
+#define PROPERTY_INFO_ETHTOOL(xname) \
+    PROPERTY_INFO_ETHTOOL_DOC (xname, \
+        "Kernel network-device offload feature. Set to \"on\" or \"off\" to " \
+        "enable or disable it, or \"ignore\" (default) to leave the kernel " \
+        "value unchanged. See ethtool(8) and the kernel network-device feature " \
+        "documentation for the meaning of each feature.")
 
 #undef  _CURRENT_NM_META_SETTING_TYPE
 #define _CURRENT_NM_META_SETTING_TYPE NM_META_SETTING_TYPE_ETHTOOL
@@ -6036,28 +6045,72 @@ static const NMMetaPropertyInfo *const property_infos_ETHTOOL[] = {
     PROPERTY_INFO_ETHTOOL (FEATURE_TX_UDP_TNL_CSUM_SEGMENTATION),
     PROPERTY_INFO_ETHTOOL (FEATURE_TX_UDP_TNL_SEGMENTATION),
     PROPERTY_INFO_ETHTOOL (FEATURE_TX_VLAN_STAG_HW_INSERT),
-    PROPERTY_INFO_ETHTOOL (COALESCE_ADAPTIVE_RX),
-    PROPERTY_INFO_ETHTOOL (COALESCE_ADAPTIVE_TX),
-    PROPERTY_INFO_ETHTOOL (COALESCE_PKT_RATE_HIGH),
-    PROPERTY_INFO_ETHTOOL (COALESCE_PKT_RATE_LOW),
-    PROPERTY_INFO_ETHTOOL (COALESCE_RX_FRAMES),
-    PROPERTY_INFO_ETHTOOL (COALESCE_RX_FRAMES_IRQ),
-    PROPERTY_INFO_ETHTOOL (COALESCE_RX_FRAMES_HIGH),
-    PROPERTY_INFO_ETHTOOL (COALESCE_RX_FRAMES_LOW),
-    PROPERTY_INFO_ETHTOOL (COALESCE_RX_USECS),
-    PROPERTY_INFO_ETHTOOL (COALESCE_RX_USECS_IRQ),
-    PROPERTY_INFO_ETHTOOL (COALESCE_RX_USECS_HIGH),
-    PROPERTY_INFO_ETHTOOL (COALESCE_RX_USECS_LOW),
-    PROPERTY_INFO_ETHTOOL (COALESCE_SAMPLE_INTERVAL),
-    PROPERTY_INFO_ETHTOOL (COALESCE_STATS_BLOCK_USECS),
-    PROPERTY_INFO_ETHTOOL (COALESCE_TX_FRAMES),
-    PROPERTY_INFO_ETHTOOL (COALESCE_TX_FRAMES_IRQ),
-    PROPERTY_INFO_ETHTOOL (COALESCE_TX_FRAMES_HIGH),
-    PROPERTY_INFO_ETHTOOL (COALESCE_TX_FRAMES_LOW),
-    PROPERTY_INFO_ETHTOOL (COALESCE_TX_USECS),
-    PROPERTY_INFO_ETHTOOL (COALESCE_TX_USECS_IRQ),
-    PROPERTY_INFO_ETHTOOL (COALESCE_TX_USECS_HIGH),
-    PROPERTY_INFO_ETHTOOL (COALESCE_TX_USECS_LOW),
+    PROPERTY_INFO_ETHTOOL_DOC (COALESCE_ADAPTIVE_RX,
+                               "Whether to enable adaptive RX interrupt coalescing."),
+    PROPERTY_INFO_ETHTOOL_DOC (COALESCE_ADAPTIVE_TX,
+                               "Whether to enable adaptive TX interrupt coalescing."),
+    PROPERTY_INFO_ETHTOOL_DOC (COALESCE_PKT_RATE_HIGH,
+                               "Packet rate, in packets per second, above which the "
+                               "high coalescing parameters are used for adaptive "
+                               "coalescing."),
+    PROPERTY_INFO_ETHTOOL_DOC (COALESCE_PKT_RATE_LOW,
+                               "Packet rate, in packets per second, below which the "
+                               "low coalescing parameters are used for adaptive "
+                               "coalescing."),
+    PROPERTY_INFO_ETHTOOL_DOC (COALESCE_RX_FRAMES,
+                               "Maximum number of received frames to accumulate before "
+                               "raising an RX interrupt."),
+    PROPERTY_INFO_ETHTOOL_DOC (COALESCE_RX_FRAMES_IRQ,
+                               "Like coalesce-rx-frames, but applies while the host is "
+                               "servicing an interrupt."),
+    PROPERTY_INFO_ETHTOOL_DOC (COALESCE_RX_FRAMES_HIGH,
+                               "RX frame count used while the measured packet rate is "
+                               "above coalesce-pkt-rate-high."),
+    PROPERTY_INFO_ETHTOOL_DOC (COALESCE_RX_FRAMES_LOW,
+                               "RX frame count used while the measured packet rate is "
+                               "below coalesce-pkt-rate-low."),
+    PROPERTY_INFO_ETHTOOL_DOC (COALESCE_RX_USECS,
+                               "Number of microseconds to wait after a frame is "
+                               "received before raising an RX interrupt."),
+    PROPERTY_INFO_ETHTOOL_DOC (COALESCE_RX_USECS_IRQ,
+                               "Like coalesce-rx-usecs, but applies while the host is "
+                               "servicing an interrupt."),
+    PROPERTY_INFO_ETHTOOL_DOC (COALESCE_RX_USECS_HIGH,
+                               "RX coalescing delay in microseconds used while the "
+                               "measured packet rate is above coalesce-pkt-rate-high."),
+    PROPERTY_INFO_ETHTOOL_DOC (COALESCE_RX_USECS_LOW,
+                               "RX coalescing delay in microseconds used while the "
+                               "measured packet rate is below coalesce-pkt-rate-low."),
+    PROPERTY_INFO_ETHTOOL_DOC (COALESCE_SAMPLE_INTERVAL,
+                               "How often, in seconds, to sample the packet rate for "
+                               "adaptive coalescing."),
+    PROPERTY_INFO_ETHTOOL_DOC (COALESCE_STATS_BLOCK_USECS,
+                               "Number of microseconds between updates of the hardware "
+                               "statistics block."),
+    PROPERTY_INFO_ETHTOOL_DOC (COALESCE_TX_FRAMES,
+                               "Maximum number of transmitted frames to accumulate "
+                               "before raising a TX interrupt."),
+    PROPERTY_INFO_ETHTOOL_DOC (COALESCE_TX_FRAMES_IRQ,
+                               "Like coalesce-tx-frames, but applies while the host is "
+                               "servicing an interrupt."),
+    PROPERTY_INFO_ETHTOOL_DOC (COALESCE_TX_FRAMES_HIGH,
+                               "TX frame count used while the measured packet rate is "
+                               "above coalesce-pkt-rate-high."),
+    PROPERTY_INFO_ETHTOOL_DOC (COALESCE_TX_FRAMES_LOW,
+                               "TX frame count used while the measured packet rate is "
+                               "below coalesce-pkt-rate-low."),
+    PROPERTY_INFO_ETHTOOL_DOC (COALESCE_TX_USECS,
+                               "Number of microseconds to wait after a frame is "
+                               "transmitted before raising a TX interrupt."),
+    PROPERTY_INFO_ETHTOOL_DOC (COALESCE_TX_USECS_IRQ,
+                               "Like coalesce-tx-usecs, but applies while the host is "
+                               "servicing an interrupt."),
+    PROPERTY_INFO_ETHTOOL_DOC (COALESCE_TX_USECS_HIGH,
+                               "TX coalescing delay in microseconds used while the "
+                               "measured packet rate is above coalesce-pkt-rate-high."),
+    PROPERTY_INFO_ETHTOOL_DOC (COALESCE_TX_USECS_LOW,
+                               "TX coalescing delay in microseconds used while the "
+                               "measured packet rate is below coalesce-pkt-rate-low."),
     PROPERTY_INFO (NM_ETHTOOL_OPTNAME_PAUSE_AUTONEG,
                    "Whether to automatically negotiate on pause frame of flow "
                    "control mechanism defined by IEEE 802.3x standard.",
@@ -6082,15 +6135,27 @@ static const NMMetaPropertyInfo *const property_infos_ETHTOOL[] = {
                    DEFINE_PROPERTY_TYP_DATA_SUBTYPE
                       (ethtool, .ethtool_id = NM_ETHTOOL_ID_PAUSE_TX)
                    ),
-    PROPERTY_INFO_ETHTOOL (EEE_ENABLED),
-    PROPERTY_INFO_ETHTOOL (RING_RX),
-    PROPERTY_INFO_ETHTOOL (RING_RX_JUMBO),
-    PROPERTY_INFO_ETHTOOL (RING_RX_MINI),
-    PROPERTY_INFO_ETHTOOL (RING_TX),
-    PROPERTY_INFO_ETHTOOL (CHANNELS_RX),
-    PROPERTY_INFO_ETHTOOL (CHANNELS_TX),
-    PROPERTY_INFO_ETHTOOL (CHANNELS_OTHER),
-    PROPERTY_INFO_ETHTOOL (CHANNELS_COMBINED),
+    PROPERTY_INFO_ETHTOOL_DOC (EEE_ENABLED,
+                               "Whether to enable Energy-Efficient Ethernet (EEE) on "
+                               "the device."),
+    PROPERTY_INFO_ETHTOOL_DOC (RING_RX,
+                               "Number of entries in the RX ring buffer."),
+    PROPERTY_INFO_ETHTOOL_DOC (RING_RX_JUMBO,
+                               "Number of entries in the RX jumbo ring buffer."),
+    PROPERTY_INFO_ETHTOOL_DOC (RING_RX_MINI,
+                               "Number of entries in the RX mini ring buffer."),
+    PROPERTY_INFO_ETHTOOL_DOC (RING_TX,
+                               "Number of entries in the TX ring buffer."),
+    PROPERTY_INFO_ETHTOOL_DOC (CHANNELS_RX,
+                               "Number of channels with only receive queues."),
+    PROPERTY_INFO_ETHTOOL_DOC (CHANNELS_TX,
+                               "Number of channels with only transmit queues."),
+    PROPERTY_INFO_ETHTOOL_DOC (CHANNELS_OTHER,
+                               "Number of channels used only for other purposes, such "
+                               "as link management."),
+    PROPERTY_INFO_ETHTOOL_DOC (CHANNELS_COMBINED,
+                               "Number of multi-purpose channels used for both receive "
+                               "and transmit."),
     PROPERTY_INFO (NM_ETHTOOL_OPTNAME_FEC_MODE,
                    "The Forward Error Correction(FEC) encoding modes to set. "
                    "Not all devices support all options. "
@@ -8343,6 +8408,13 @@ static const NMMetaPropertyInfo *const property_infos_WIFI_P2P[] = {
     PROPERTY_INFO_WITH_DESC (NM_SETTING_WIFI_P2P_WFD_IES,
         .property_type =                &_pt_gobject_bytes,
     ),
+    PROPERTY_INFO_WITH_DESC (NM_SETTING_WIFI_P2P_WPS_PIN,
+        .is_secret =                    TRUE,
+        .property_type =                &_pt_gobject_string,
+    ),
+    PROPERTY_INFO_WITH_DESC (NM_SETTING_WIFI_P2P_WPS_PIN_FLAGS,
+        .property_type =                &_pt_gobject_secret_flags,
+    ),
     NULL
 };
 
@@ -8369,8 +8441,7 @@ static const NMMetaPropertyInfo *const property_infos_WIMAX[] = {
 #define _CURRENT_NM_META_SETTING_TYPE NM_META_SETTING_TYPE_WIRED
 static const NMMetaPropertyInfo *const property_infos_WIRED[] = {
     PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRED_PORT,
-        /* Do not allow setting 'port' for now. It is not implemented in
-         * NM core, nor in ifcfg-rh plugin. Enable this when it gets done.
+        /* Do not allow setting 'port' for now. It is not yet implemented.
          * wired_valid_ports[] = { "tp", "aui", "bnc", "mii", NULL };
          */
         .property_type =                &_pt_gobject_readonly,
@@ -8846,6 +8917,9 @@ static const NMMetaPropertyInfo *const property_infos_WIRELESS_SECURITY[] = {
         .property_typ_data = DEFINE_PROPERTY_TYP_DATA (
             PROPERTY_TYP_DATA_SUBTYPE (gobject_enum,
                 .get_gtype =            nm_setting_wireless_security_wps_method_get_type,
+                /* "pin-display" is only implemented for Wi-Fi P2P. */
+                .min =                  NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_DEFAULT,
+                .max =                  NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_PIN,
             ),
         ),
     ),

@@ -103,6 +103,7 @@ typedef struct {
 
     gint64 scan_last_complete_msec;
     gint64 scan_periodic_next_msec;
+    gint64 scan_grace_next_msec;
 
     gint64 scan_last_request_started_at_msec;
 
@@ -393,6 +394,13 @@ nm_device_wifi_scanning_prohibited_track(NMDeviceWifi *self,
         if (!elem)
             return;
         nm_c_list_elem_free(elem);
+        if (c_list_is_empty(&priv->scanning_prohibited_lst_head)) {
+            /* Grace period: the prohibiting device may immediately retry
+             * (and prohibit again) or still be settling. */
+            priv->scan_grace_next_msec =
+                NM_MAX(priv->scan_grace_next_msec,
+                       nm_utils_get_monotonic_timestamp_msec() + (SCAN_INTERVAL_SEC_MIN * 1000));
+        }
     } else {
         if (elem)
             return;
@@ -1035,7 +1043,7 @@ check_connection_compatible(NMDevice     *device,
     if (perm_hw_addr) {
         if (mac && !nm_utils_hwaddr_matches(mac, -1, perm_hw_addr, -1)) {
             nm_utils_error_set_literal(error,
-                                       NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+                                       NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_OTHER,
                                        "device MAC address does not match the profile");
             return FALSE;
         }
@@ -1050,14 +1058,14 @@ check_connection_compatible(NMDevice     *device,
 
             if (nm_utils_hwaddr_matches(mac_blacklist[i], -1, perm_hw_addr, -1)) {
                 nm_utils_error_set_literal(error,
-                                           NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+                                           NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_OTHER,
                                            "MAC address blacklisted");
                 return FALSE;
             }
         }
     } else if (mac) {
         nm_utils_error_set_literal(error,
-                                   NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+                                   NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_OTHER,
                                    "device has no valid MAC address as required by profile");
         return FALSE;
     }
@@ -1067,14 +1075,14 @@ check_connection_compatible(NMDevice     *device,
     if (g_strcmp0(mode, NM_SETTING_WIRELESS_MODE_ADHOC) == 0) {
         if (!(priv->capabilities & _NM_WIFI_DEVICE_CAP_ADHOC)) {
             nm_utils_error_set_literal(error,
-                                       NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+                                       NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_OTHER,
                                        "the device does not support Ad-Hoc networks");
             return FALSE;
         }
     } else if (g_strcmp0(mode, NM_SETTING_WIRELESS_MODE_AP) == 0) {
         if (!(priv->capabilities & _NM_WIFI_DEVICE_CAP_AP)) {
             nm_utils_error_set_literal(error,
-                                       NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+                                       NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_OTHER,
                                        "the device does not support Access Point mode");
             return FALSE;
         }
@@ -1083,7 +1091,7 @@ check_connection_compatible(NMDevice     *device,
             if (nm_supplicant_interface_get_capability(priv->sup_iface, NM_SUPPL_CAP_TYPE_AP)
                 == NM_TERNARY_FALSE) {
                 nm_utils_error_set_literal(error,
-                                           NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+                                           NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_OTHER,
                                            "wpa_supplicant does not support Access Point mode");
                 return FALSE;
             }
@@ -1091,7 +1099,7 @@ check_connection_compatible(NMDevice     *device,
     } else if (g_strcmp0(mode, NM_SETTING_WIRELESS_MODE_MESH) == 0) {
         if (!(priv->capabilities & _NM_WIFI_DEVICE_CAP_MESH)) {
             nm_utils_error_set_literal(error,
-                                       NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+                                       NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_OTHER,
                                        "the device does not support Mesh mode");
             return FALSE;
         }
@@ -1100,7 +1108,7 @@ check_connection_compatible(NMDevice     *device,
             if (nm_supplicant_interface_get_capability(priv->sup_iface, NM_SUPPL_CAP_TYPE_MESH)
                 == NM_TERNARY_FALSE) {
                 nm_utils_error_set_literal(error,
-                                           NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+                                           NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_OTHER,
                                            "wpa_supplicant does not support Mesh mode");
                 return FALSE;
             }
@@ -1116,7 +1124,7 @@ check_connection_compatible(NMDevice     *device,
                    == NM_TERNARY_FALSE
             && NM_IN_STRSET(key_mgmt, "ieee8021x", "none")) {
             nm_utils_error_set_literal(error,
-                                       NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+                                       NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_OTHER,
                                        "wpa_supplicant does not support WEP encryption");
             return FALSE;
         }
@@ -1153,13 +1161,13 @@ check_connection_available(NMDevice                      *device,
         ap = nm_wifi_ap_lookup_for_device(NM_DEVICE(self), specific_object);
         if (!ap) {
             nm_utils_error_set_literal(error,
-                                       NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+                                       NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_OTHER,
                                        "requested access point not found");
             return FALSE;
         }
         if (!nm_wifi_ap_check_compatible(ap, connection)) {
             nm_utils_error_set_literal(error,
-                                       NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+                                       NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_OTHER,
                                        "requested access point is not compatible with profile");
             return FALSE;
         }
@@ -1189,7 +1197,7 @@ check_connection_available(NMDevice                      *device,
 
     if (!nm_wifi_aps_find_first_compatible(&priv->aps_lst_head, connection)) {
         nm_utils_error_set_literal(error,
-                                   NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+                                   NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_OTHER,
                                    "no compatible access point found");
         return FALSE;
     }
@@ -1379,10 +1387,10 @@ can_auto_connect(NMDevice *device, NMSettingsConnection *sett_conn, char **speci
 
     /* Always allow autoconnect for AP and non-autoconf Ad-Hoc or Mesh */
     auto4   = nm_streq0(nm_utils_get_ip_config_method(connection, AF_INET),
-                      NM_SETTING_IP4_CONFIG_METHOD_AUTO);
+                        NM_SETTING_IP4_CONFIG_METHOD_AUTO);
     method6 = nm_utils_get_ip_config_method(connection, AF_INET6);
     auto6   = nm_streq0(method6, NM_SETTING_IP6_CONFIG_METHOD_AUTO)
-            || nm_streq0(method6, NM_SETTING_IP6_CONFIG_METHOD_DHCP);
+              || nm_streq0(method6, NM_SETTING_IP6_CONFIG_METHOD_DHCP);
 
     mode = nm_setting_wireless_get_mode(s_wifi);
 
@@ -1824,6 +1832,21 @@ _scan_kickoff(NMDeviceWifi *self)
         return;
     }
 
+    if (now_msec < priv->scan_grace_next_msec) {
+        _LOGT_scan("kickoff: don't scan (grace period after a scan prohibition for another "
+                   "%d.%03d sec%s)",
+                   (int) ((priv->scan_grace_next_msec - now_msec) / 1000),
+                   (int) ((priv->scan_grace_next_msec - now_msec) % 1000),
+                   !priv->scan_kickoff_timeout_source ? ", schedule timeout" : "");
+        if (!priv->scan_kickoff_timeout_source) {
+            priv->scan_kickoff_timeout_source =
+                nm_g_timeout_add_source(priv->scan_grace_next_msec - now_msec,
+                                        _scan_kickoff_timeout_cb,
+                                        self);
+        }
+        return;
+    }
+
     if (priv->scan_explicit_requested) {
         if (!priv->scan_explicit_allowed) {
             _LOGT_scan(
@@ -2198,21 +2221,16 @@ supplicant_iface_wps_credentials_cb(NMSupplicantInterface *iface,
 
     val_key = g_variant_lookup_value(credentials, "Key", G_VARIANT_TYPE_BYTESTRING);
     if (val_key) {
-        char psk[64];
+        char psk[65];
 
         array = g_variant_get_fixed_array(val_key, &psk_len, 1);
-        if (psk_len >= 8 && psk_len <= 63) {
-            memcpy(psk, array, psk_len);
-            psk[psk_len] = '\0';
-            if (g_utf8_validate(psk, psk_len, NULL)) {
-                secrets = g_variant_new_parsed("[{%s, [{%s, <%s>}]}]",
-                                               NM_SETTING_WIRELESS_SECURITY_SETTING_NAME,
-                                               NM_SETTING_WIRELESS_SECURITY_PSK,
-                                               psk);
-                g_variant_ref_sink(secrets);
-            }
-        }
-        if (!secrets)
+        if (nm_wifi_utils_wps_key_to_psk((const guint8 *) array, psk_len, &psk)) {
+            secrets = g_variant_new_parsed("[{%s, [{%s, <%s>}]}]",
+                                           NM_SETTING_WIRELESS_SECURITY_SETTING_NAME,
+                                           NM_SETTING_WIRELESS_SECURITY_PSK,
+                                           psk);
+            g_variant_ref_sink(secrets);
+        } else
             _LOGW(LOGD_DEVICE | LOGD_WIFI, "WPS: ignore invalid PSK");
     }
 
@@ -2783,6 +2801,40 @@ supplicant_iface_notify_current_bss(NMSupplicantInterface *iface,
     }
 }
 
+static void
+p2p_device_state_changed_cb(NMDeviceWifiP2P    *p2p_device,
+                            NMDeviceState       state,
+                            NMDeviceState       old_state,
+                            NMDeviceStateReason reason,
+                            gpointer            user_data)
+{
+    NMDeviceWifi        *self = user_data;
+    NMDeviceWifiPrivate *priv = NM_DEVICE_WIFI_GET_PRIVATE(self);
+
+    /* The P2P device shares the phy: going off-channel to scan can make it
+     * miss group formation or DHCP frames. */
+    nm_device_wifi_scanning_prohibited_track(self,
+                                             &priv->p2p_device,
+                                             state >= NM_DEVICE_STATE_PREPARE
+                                                 && state <= NM_DEVICE_STATE_IP_CONFIG);
+}
+
+static void
+p2p_device_cleanup(NMDeviceWifi *self)
+{
+    NMDeviceWifiPrivate *priv = NM_DEVICE_WIFI_GET_PRIVATE(self);
+
+    if (!priv->p2p_device)
+        return;
+
+    g_signal_handlers_disconnect_by_func(priv->p2p_device,
+                                         G_CALLBACK(p2p_device_state_changed_cb),
+                                         self);
+    nm_device_wifi_scanning_prohibited_track(self, &priv->p2p_device, FALSE);
+    g_object_remove_weak_pointer(G_OBJECT(priv->p2p_device), (gpointer *) &priv->p2p_device);
+    nm_device_wifi_p2p_remove(g_steal_pointer(&priv->p2p_device));
+}
+
 /* We bind the existence of the P2P device to a wifi device that is being
  * managed by NetworkManager and is capable of P2P operation.
  * Note that some care must be taken here, because we don't want to re-create
@@ -2811,6 +2863,11 @@ recheck_p2p_availability(NMDeviceWifi *self)
 
         nm_device_wifi_p2p_set_mgmt_iface(priv->p2p_device, priv->sup_iface);
 
+        g_signal_connect(priv->p2p_device,
+                         NM_DEVICE_STATE_CHANGED,
+                         G_CALLBACK(p2p_device_state_changed_cb),
+                         self);
+
         g_signal_emit(self, signals[P2P_DEVICE_CREATED], 0, priv->p2p_device);
         g_object_add_weak_pointer(G_OBJECT(priv->p2p_device), (gpointer *) &priv->p2p_device);
         g_object_unref(priv->p2p_device);
@@ -2824,8 +2881,7 @@ recheck_p2p_availability(NMDeviceWifi *self)
 
     if (!p2p_available && priv->p2p_device) {
         /* Destroy the P2P device. */
-        g_object_remove_weak_pointer(G_OBJECT(priv->p2p_device), (gpointer *) &priv->p2p_device);
-        nm_device_wifi_p2p_remove(g_steal_pointer(&priv->p2p_device));
+        p2p_device_cleanup(self);
         return;
     }
 }
@@ -3065,6 +3121,60 @@ supplicant_connection_timeout_cb(gpointer user_data)
     return FALSE;
 }
 
+/* _seen_bssids_are_single_ap_mld:
+ *
+ * Returns TRUE when every seen BSSID belongs to a single Wi-Fi 7 AP-MLD,
+ * i.e. they are the per-link addresses of one physical AP rather than
+ * several distinct APs. In that case background scanning for roam
+ * candidates is unnecessary, so the caller keeps the long bgscan interval.
+ *
+ * Each seen BSSID is resolved to its scanned AP, and the MLD MAC address
+ * parsed from that AP's Basic Multi-Link element (802.11be) is read. If all
+ * resolve to the same valid MLD address it is one AP-MLD. If any BSSID is
+ * not currently known, or maps to an AP without (or with a different) MLD
+ * address, the set is treated as multiple APs.
+ */
+static gboolean
+_seen_bssids_are_single_ap_mld(NMDeviceWifi      *self,
+                               const char *const *seen_bssids,
+                               guint              num_seen_bssids)
+{
+    NMDeviceWifiPrivate *priv = NM_DEVICE_WIFI_GET_PRIVATE(self);
+    NMEtherAddr          ref_mld;
+    gboolean             have_ref = FALSE;
+    guint                i;
+
+    if (num_seen_bssids < 2)
+        return FALSE;
+
+    for (i = 0; i < num_seen_bssids; i++) {
+        NMEtherAddr mld_addr;
+        NMWifiAP   *ap;
+        NMWifiAP   *found = NULL;
+
+        /* Both the seen BSSIDs and the AP addresses are generated by
+         * nm_utils_hwaddr_ntoa() and hence in canonical (upper case) form,
+         * so they can be compared directly as strings. */
+        c_list_for_each_entry (ap, &priv->aps_lst_head, aps_lst) {
+            if (nm_streq0(nm_wifi_ap_get_address(ap), seen_bssids[i])) {
+                found = ap;
+                break;
+            }
+        }
+
+        if (!found || !nm_wifi_ap_get_mld_address(found, &mld_addr))
+            return FALSE;
+
+        if (!have_ref) {
+            ref_mld  = mld_addr;
+            have_ref = TRUE;
+        } else if (!nm_ether_addr_equal(&mld_addr, &ref_mld))
+            return FALSE;
+    }
+
+    return have_ref;
+}
+
 static NMSupplicantConfig *
 build_supplicant_config(NMDeviceWifi         *self,
                         NMSettingsConnection *sett_conn,
@@ -3079,6 +3189,9 @@ build_supplicant_config(NMDeviceWifi         *self,
     NMSettingWirelessSecurityPmf  pmf;
     NMSettingWirelessSecurityFils fils;
     NMTernary                     ap_isolation;
+    const char                   *seen_bssids[NM_SETTINGS_CONNECTION_SEEN_BSSIDS_MAX + 1];
+    guint                         num_seen_bssids;
+    gboolean                      multiple_aps;
 
     g_return_val_if_fail(priv->sup_iface, NULL);
 
@@ -3100,10 +3213,10 @@ build_supplicant_config(NMDeviceWifi         *self,
         goto error;
     }
 
-    if (!nm_supplicant_config_add_bgscan(config,
-                                         connection,
-                                         nm_settings_connection_get_num_seen_bssids(sett_conn),
-                                         error)) {
+    num_seen_bssids = nm_settings_connection_get_seen_bssids(sett_conn, seen_bssids);
+    multiple_aps =
+        num_seen_bssids > 1 && !_seen_bssids_are_single_ap_mld(self, seen_bssids, num_seen_bssids);
+    if (!nm_supplicant_config_add_bgscan(config, connection, multiple_aps, error)) {
         g_prefix_error(error, "bgscan: ");
         goto error;
     }
@@ -3124,7 +3237,7 @@ build_supplicant_config(NMDeviceWifi         *self,
         NMSetting8021x *s_8021x;
         const char     *con_uuid = nm_connection_get_uuid(connection);
         guint32         mtu      = nm_platform_link_get_mtu(nm_device_get_platform(NM_DEVICE(self)),
-                                               nm_device_get_ifindex(NM_DEVICE(self)));
+                                                            nm_device_get_ifindex(NM_DEVICE(self)));
 
         g_assert(con_uuid);
 
@@ -3360,23 +3473,23 @@ ensure_hotspot_frequency(NMDeviceWifi *self, NMSettingWireless *s_wifi, NMWifiAP
         ssid      = nm_setting_wireless_get_ssid(s_wifi);
         ssid_data = g_bytes_get_data(ssid, &ssid_len);
         rnd       = c_siphash_hash(NM_HASH_SEED_16(0x9a,
-                                             0xdc,
-                                             0x86,
-                                             0x9a,
-                                             0xa8,
-                                             0xa2,
-                                             0x07,
-                                             0x97,
-                                             0xbe,
-                                             0x6d,
-                                             0xe6,
-                                             0x99,
-                                             0x9f,
-                                             0xa8,
-                                             0x09,
-                                             0x2b),
-                             ssid_data,
-                             ssid_len);
+                                                   0xdc,
+                                                   0x86,
+                                                   0x9a,
+                                                   0xa8,
+                                                   0xa2,
+                                                   0x07,
+                                                   0x97,
+                                                   0xbe,
+                                                   0x6d,
+                                                   0xe6,
+                                                   0x99,
+                                                   0x9f,
+                                                   0xa8,
+                                                   0x09,
+                                                   0x2b),
+                                   ssid_data,
+                                   ssid_len);
     }
 
     if (nm_streq0(band, "a")) {
@@ -3961,6 +4074,8 @@ dispose(GObject *object)
     NMDeviceWifi        *self = NM_DEVICE_WIFI(object);
     NMDeviceWifiPrivate *priv = NM_DEVICE_WIFI_GET_PRIVATE(self);
 
+    p2p_device_cleanup(self);
+
     nm_assert(c_list_is_empty(&priv->scanning_prohibited_lst_head));
 
     nm_clear_g_source(&priv->periodic_update_id);
@@ -3975,12 +4090,6 @@ dispose(GObject *object)
     g_clear_object(&priv->sup_mgr);
 
     remove_all_aps(self, TRUE);
-
-    if (priv->p2p_device) {
-        /* Destroy the P2P device. */
-        g_object_remove_weak_pointer(G_OBJECT(priv->p2p_device), (gpointer *) &priv->p2p_device);
-        nm_device_wifi_p2p_remove(g_steal_pointer(&priv->p2p_device));
-    }
 
     G_OBJECT_CLASS(nm_device_wifi_parent_class)->dispose(object);
 }

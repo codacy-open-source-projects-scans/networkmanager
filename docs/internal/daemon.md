@@ -46,8 +46,7 @@ connection profiles, such as:
 
 This object handles connection profiles; each profile is represented
 as a *SettingsConnection* object and is persisted to disk using one of
-the existing *SettingsPlugin*s such as keyfile, ifcfg-rh or
-ifupdown.
+the existing *SettingsPlugin*s such as keyfile or ifupdown.
 
 It also controls *SecretAgent*s; an agent is an external service that
 registers to NetworkManager as capable of handling requests for new
@@ -66,13 +65,13 @@ daemon or provided by a device plugin; a plugin is a dynamic library
 for optional functionality that depend on external software. In this
 way, it is possible to install a minimal version of NetworkManager
 with a limited set of dependencies. As there is no stable API/ABI for
-those plugins, they must be built together with the daemonq and
+those plugins, they must be built together with the daemon and
 maintained as part of NetworkManager.
 
 Currently the following device types are provided by plugins:
 
  - Wi-Fi (depends on wpa_supplicant)
- - OVS (depends on openswitch)
+ - OVS (depends on Open vSwitch)
  - PPP (depends on pppd)
  - Bluetooth (depends on bluez)
  - team (depends on teamd)
@@ -158,7 +157,7 @@ The diagram shows other objects on the right side:
  - *DbusManager*: creates a connection to the system D-Bus instance
     and allows exporting objects
  
- - *SleepMonitor*: gets notifications for sleep and wake events by
+ - *PowerMonitor*: gets notifications for sleep and wake events by
     registering to the available subsystem provided by the distro such
     as systemd-logind or ConsoleKit.
     

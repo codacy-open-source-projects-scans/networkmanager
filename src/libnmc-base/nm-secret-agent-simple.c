@@ -25,6 +25,7 @@
 
 #include "nm-vpn-service-plugin.h"
 #include "nm-vpn-helpers.h"
+#include "libnm-glib-aux/nm-random-utils.h"
 #include "libnm-glib-aux/nm-secret-utils.h"
 
 /*****************************************************************************/
@@ -224,9 +225,9 @@ _secret_real_new_wireguard_peer_psk(NMSettingWireGuard *s_wg,
         .base.secret_type        = NM_SECRET_AGENT_SECRET_TYPE_WIREGUARD_PEER_PSK,
         .base.pretty_name        = g_strdup_printf(_("Preshared-key for %s"), public_key),
         .base.entry_id           = g_strdup_printf(NM_SETTING_WIREGUARD_SETTING_NAME
-                                         "." NM_SETTING_WIREGUARD_PEERS
-                                         ".%s." NM_WIREGUARD_PEER_ATTR_PRESHARED_KEY,
-                                         public_key),
+                                                   "." NM_SETTING_WIREGUARD_PEERS
+                                                   ".%s." NM_WIREGUARD_PEER_ATTR_PRESHARED_KEY,
+                                                   public_key),
         .base.value              = g_strdup(preshared_key),
         .base.is_secret          = TRUE,
         .base.no_prompt_entry_id = TRUE,
@@ -298,6 +299,23 @@ add_8021x_secrets(RequestData *request, GPtrArray *secrets)
     }
 
     return FALSE;
+}
+
+/* Generate an eight digit WPS PIN: seven random digits followed by the check
+ * digit that the WSC specification defines. */
+static void
+_wps_pin_generate(char (*out_pin)[9])
+{
+    unsigned val   = nm_random_u64_range(0, 10000000u);
+    unsigned accum = 0;
+    unsigned t;
+
+    for (t = val; t > 0; t /= 100) {
+        accum += 3 * (t % 10);
+        accum += (t / 10) % 10;
+    }
+
+    nm_sprintf_buf(*out_pin, "%08u", (val * 10) + ((10 - accum % 10) % 10));
 }
 
 static gboolean
@@ -919,17 +937,55 @@ request_secrets_from_ui(RequestData *request)
 
         if (!add_wireless_secrets(request, secrets))
             goto out_fail;
+    } else if (nm_connection_is_type(request->connection, NM_SETTING_WIFI_P2P_SETTING_NAME)) {
+        NMSettingWifiP2P *s_wifi_p2p = NM_SETTING_WIFI_P2P(
+            nm_connection_get_setting(request->connection, NM_TYPE_SETTING_WIFI_P2P));
+
+        if (!s_wifi_p2p)
+            goto out_fail;
+
+        title = _("WPS PIN required");
+
+        if (nm_setting_wifi_p2p_get_wps_method(s_wifi_p2p)
+            == NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_PIN_DISPLAY) {
+            char pin[9];
+
+            /* We are the one that shows the PIN, so make one up. The user
+             * enters it on the peer and confirms it here. */
+            _wps_pin_generate(&pin);
+
+            msg = g_strdup_printf(_("Enter the WPS PIN on the peer to connect to '%s'"),
+                                  nm_connection_get_id(request->connection));
+
+            secret = _secret_real_new_plain(NM_SECRET_AGENT_SECRET_TYPE_SECRET,
+                                            _("PIN"),
+                                            NM_SETTING(s_wifi_p2p),
+                                            NM_SETTING_WIFI_P2P_WPS_PIN);
+            g_free(secret->value);
+            secret->value      = g_strdup(pin);
+            secret->force_echo = TRUE;
+        } else {
+            msg = g_strdup_printf(_("Enter the WPS PIN displayed by the peer to connect to '%s'"),
+                                  nm_connection_get_id(request->connection));
+
+            secret = _secret_real_new_plain(NM_SECRET_AGENT_SECRET_TYPE_SECRET,
+                                            _("PIN"),
+                                            NM_SETTING(s_wifi_p2p),
+                                            NM_SETTING_WIFI_P2P_WPS_PIN);
+        }
+
+        g_ptr_array_add(secrets, secret);
     } else if (nm_connection_is_type(request->connection, NM_SETTING_WIRED_SETTING_NAME)) {
         title = _("Wired 802.1X authentication");
         msg   = g_strdup_printf(_("Secrets are required to access the wired network '%s'"),
-                              nm_connection_get_id(request->connection));
+                                nm_connection_get_id(request->connection));
 
         if (!add_8021x_secrets(request, secrets))
             goto out_fail;
     } else if (nm_connection_is_type(request->connection, NM_SETTING_PPPOE_SETTING_NAME)) {
         title = _("DSL authentication");
         msg   = g_strdup_printf(_("Secrets are required for the DSL connection '%s'"),
-                              nm_connection_get_id(request->connection));
+                                nm_connection_get_id(request->connection));
 
         if (!add_pppoe_secrets(request, secrets))
             goto out_fail;
@@ -948,7 +1004,7 @@ request_secrets_from_ui(RequestData *request)
         } else {
             title = _("Mobile broadband network password");
             msg   = g_strdup_printf(_("A password is required to connect to '%s'."),
-                                  nm_connection_get_id(request->connection));
+                                    nm_connection_get_id(request->connection));
 
             secret = _secret_real_new_plain(NM_SECRET_AGENT_SECRET_TYPE_SECRET,
                                             _("Password"),
@@ -983,7 +1039,7 @@ request_secrets_from_ui(RequestData *request)
 
         title = _("Mobile broadband network password");
         msg   = g_strdup_printf(_("A password is required to connect to '%s'."),
-                              nm_connection_get_id(request->connection));
+                                nm_connection_get_id(request->connection));
 
         secret = _secret_real_new_plain(NM_SECRET_AGENT_SECRET_TYPE_SECRET,
                                         _("Password"),
@@ -1010,7 +1066,7 @@ request_secrets_from_ui(RequestData *request)
 
         title = _("Mobile broadband network password");
         msg   = g_strdup_printf(_("A password is required to connect to '%s'."),
-                              nm_connection_get_id(request->connection));
+                                nm_connection_get_id(request->connection));
 
         secret = _secret_real_new_plain(NM_SECRET_AGENT_SECRET_TYPE_SECRET,
                                         _("Password"),

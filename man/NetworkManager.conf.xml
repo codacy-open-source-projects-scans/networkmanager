@@ -56,7 +56,10 @@
     it, since your changes may get overwritten by package
     updates. Instead, you can add additional <literal>.conf</literal>
     files to the <literal>/etc/NetworkManager/conf.d</literal> directory.
-    These will be read in order, with later files overriding earlier ones.
+    Within a directory, the files are merged in asciibetical order of their
+    file names, that is, compared byte by byte (so <literal>10-a.conf</literal>
+    is parsed before <literal>9-a.conf</literal>). If several files set the
+    same key, the value from the file parsed last is used.
     Packages might install further configuration snippets to <literal>/usr/lib/NetworkManager/conf.d</literal>.
     This directory is parsed first, even before <literal>NetworkManager.conf</literal>.
     Scripts can also put per-boot configuration into <literal>/run/NetworkManager/conf.d</literal>.
@@ -253,9 +256,10 @@ no-auto-default=*
           <para>
             When set to '<literal>initrd</literal>', NetworkManager does not connect
             to D-Bus and quits after configuring the network. This is an implementation
-            detail how the NetworkManager module of dracut can run NetworkManager.
-            An alternative to this is having NetworkManager as a systemd service
-            with D-Bus in initrd.
+            detail of how the NetworkManager module of dracut can run NetworkManager.
+            The alternative is to run NetworkManager as a systemd service with D-Bus
+            in the initrd, using the units described in
+            <link linkend='nm-initrd-generator'><citerefentry><refentrytitle>nm-initrd-generator</refentrytitle><manvolnum>8</manvolnum></citerefentry></link>.
           </para>
           <para>
             The value '<literal>true</literal>' is unsupported since version 1.36.
@@ -337,8 +341,10 @@ no-auto-default=*
         push the DNS configuration to systemd-resolved</para>
 
         <para><literal>dnsconfd</literal>: NetworkManager will
-        push the DNS configuration to dnsconfd</para> and by default set ipvX.routed-dns to
-        yes, so servers are contacted through right interfaces.
+        push the DNS configuration to
+        <ulink url="https://github.com/InfrastructureServices/dnsconfd">dnsconfd</ulink>
+        and by default set ipvX.routed-dns to
+        yes, so servers are contacted through right interfaces.</para>
 
         <para><literal>none</literal>: NetworkManager will not
         modify resolv.conf. This implies
@@ -507,16 +513,6 @@ no-auto-default=*
             Without it such changes have no effect in IWD.
           </para>
         </listitem>
-      </varlistentry>
-
-      <varlistentry>
-        <term><varname>migrate-ifcfg-rh</varname></term>
-        <listitem><para>Whether NetworkManager tries to automatically convert
-        any connection profile stored in ifcfg-rh format to the keyfile format.
-        Support for ifcfg-rh is deprecated and will be eventually removed. If
-        enabled, the migration is performed at every startup of the daemon.
-        The default value is <literal>&NM_CONFIG_DEFAULT_MAIN_MIGRATE_IFCFG_RH_TEXT;</literal>.
-        </para></listitem>
       </varlistentry>
 
     </variablelist>
@@ -713,7 +709,7 @@ domains=ALL
           domains are available:
           PLATFORM, RFKILL, ETHER, WIFI, BT, MB, DHCP4, DHCP6, PPP,
           WIFI_SCAN, IP4, IP6, AUTOIP4, DNS, VPN, SHARING, SUPPLICANT,
-          AGENTS, SETTINGS, SUSPEND, CORE, DEVICE, OLPC, WIMAX,
+          AGENTS, SETTINGS, SUSPEND, CORE, DEVICE, OLPC,
           INFINIBAND, FIREWALL, ADSL, BOND, VLAN, BRIDGE, DBUS_PROPS,
           TEAM, CONCHECK, DCB, DISPATCH, AUDIT, SYSTEMD, VPN_PLUGIN,
           PROXY.</para>
@@ -754,7 +750,6 @@ domains=ALL
           <member>CORE        : Core daemon and policy operations</member>
           <member>DEVICE      : Activation and general interface operations</member>
           <member>OLPC        : OLPC Mesh device operations</member>
-          <member>WIMAX       : WiMAX device operations</member>
           <member>INFINIBAND  : InfiniBand device operations</member>
           <member>FIREWALL    : FirewallD related operations</member>
           <member>ADSL        : ADSL device operations</member>
@@ -1408,6 +1403,39 @@ managed=1
             </para>
           </listitem>
         </varlistentry>
+        <varlistentry id="initrd-connections">
+          <term><varname>initrd-connections</varname></term>
+          <listitem>
+            <para>
+              <link linkend='nm-initrd-generator'><citerefentry><refentrytitle>nm-initrd-generator</refentrytitle><manvolnum>8</manvolnum></citerefentry></link>
+              writes its profiles to
+              <filename>&nmrundir;/system-connections</filename>, and they are
+              still there once the real root has booted. This controls what
+              happens to them after a persistent profile takes over the device.
+            </para>
+            <para>
+              With <literal>keep</literal>, the default, they stay listed until
+              the next boot. With <literal>volatile</literal>, NetworkManager
+              deletes such a profile, and its keyfile, once a persistent profile
+              has activated on the same device and the initrd profile is no
+              longer in use. One that is still carrying the connection is left
+              alone, so a system booted from the network is not interrupted.
+            </para>
+            <para>
+              Only <filename>&nmrundir;</filename> is considered. A copy made
+              persistent under
+              <filename>&sysconfdir;/NetworkManager/system-connections</filename>
+              is never removed.
+            </para>
+            <para>
+              A volatile profile is also deleted if it deactivates for any other
+              reason, such as carrier loss. And because the generator does not
+              bind its profiles to a single interface, on a multi-homed machine
+              the profile marked through one device may be the one another
+              device is using.
+            </para>
+          </listitem>
+        </varlistentry>
         <varlistentry>
           <term><varname>wifi.scan-rand-mac-address</varname></term>
           <listitem>
@@ -1460,6 +1488,22 @@ managed=1
               <literal>autoconnect-retries</literal> settings will be ignored.  Other settings like
               <literal>permissions</literal> or <literal>multi-connect</literal> may interfere with
               IWD connection attempts.
+            </para>
+          </listitem>
+        </varlistentry>
+        <varlistentry>
+          <term><varname>wifi-p2p.device-name</varname></term>
+          <listitem>
+            <para>
+              The name with which this device identifies itself to Wi-Fi P2P
+              (Wi-Fi Direct) peers, shown for example by a Miracast sink
+              while pairing. Limited to 32 bytes of UTF-8; longer values are
+              truncated. If unset, the system hostname is used. Note that
+              this key is matched against the Wi-Fi P2P device (device type
+              <literal>wifi-p2p</literal>, e.g. interface name
+              <literal>p2p-dev-wlan0</literal>), not the parent Wi-Fi
+              interface; match by <literal>type:wifi-p2p</literal> for a
+              portable <literal>match-device</literal> spec.
             </para>
           </listitem>
         </varlistentry>
@@ -1809,26 +1853,6 @@ enable=nm-version-min:1.3,nm-version-min:1.2.6,nm-version-min:1.0.16
       </varlistentry>
 
       <varlistentry>
-        <term><varname>ifcfg-rh</varname></term>
-        <listitem>
-          <para>
-            This plugin is now deprecated; it can be used on the
-            Fedora and Red Hat Enterprise Linux distributions to read
-            and write configuration from the standard
-            <filename>/etc/sysconfig/network-scripts/ifcfg-*</filename>
-            files. It currently supports reading Ethernet, Wi-Fi,
-            InfiniBand, VLAN, Bond, Bridge, and Team connections.
-            Enabling <literal>ifcfg-rh</literal> implicitly enables
-            <literal>ibft</literal> plugin, if it is available.
-            This can be disabled by adding <literal>no-ibft</literal>.
-            See <filename>/usr/share/doc/initscripts/sysconfig.txt</filename>
-            and <link linkend='nm-settings-ifcfg-rh'><citerefentry><refentrytitle>nm-settings-ifcfg-rh</refentrytitle><manvolnum>5</manvolnum></citerefentry></link>
-            for more information about the ifcfg file format.
-          </para>
-        </listitem>
-      </varlistentry>
-
-      <varlistentry>
         <term><varname>ifupdown</varname></term>
         <listitem>
           <para>
@@ -1856,7 +1880,7 @@ enable=nm-version-min:1.3,nm-version-min:1.2.6,nm-version-min:1.0.16
       </varlistentry>
 
       <varlistentry>
-        <term><varname>ifcfg-suse</varname>, <varname>ifnet</varname></term>
+        <term><varname>ifcfg-rh</varname>, <varname>ifcfg-suse</varname>, <varname>ifnet</varname></term>
         <listitem>
           <para>
             These plugins are deprecated and their selection has no effect.

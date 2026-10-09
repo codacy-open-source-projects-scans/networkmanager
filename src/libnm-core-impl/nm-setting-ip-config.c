@@ -1496,9 +1496,9 @@ _nm_ip_route_attribute_validate_all(const NMIPRoute *route, GError **error)
     guint                      attrs_len;
     guint                      i;
     IPRouteAttrParseData       parse_data = {
-              .type   = RTN_UNICAST,
-              .scope  = -1,
-              .weight = 0,
+        .type   = RTN_UNICAST,
+        .scope  = -1,
+        .weight = 0,
     };
 
     g_return_val_if_fail(route, FALSE);
@@ -7050,8 +7050,7 @@ nm_setting_ip_config_class_init(NMSettingIPConfigClass *klass)
      * values "duid" and "ipv6-duid" to generate the client-id.
      *
      * For DHCPv6, note that at the moment this property is
-     * only supported by the "internal" DHCPv6 plugin. The "dhclient" DHCPv6
-     * plugin always derives the IAID from the MAC address.
+     * only supported by the "internal" DHCPv6 plugin.
      *
      * The actually used DHCPv6 IAID for a currently activated interface is
      * exposed in the lease information of the device.

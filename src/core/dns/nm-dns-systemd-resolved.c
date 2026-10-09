@@ -33,11 +33,17 @@
 #define SYSTEMD_RESOLVED_MANAGER_IFACE "org.freedesktop.resolve1.Manager"
 #define SYSTEMD_RESOLVED_DBUS_PATH     "/org/freedesktop/resolve1"
 
+/* systemd-resolved's DNS stub listener addresses, which resolved rejects
+ * as name servers. Same names and values (native endian) as in systemd. */
+#define INADDR_DNS_STUB       ((in_addr_t) 0x7f000035U) /* 127.0.0.53 */
+#define INADDR_DNS_PROXY_STUB ((in_addr_t) 0x7f000036U) /* 127.0.0.54 */
+
 /* define a variable, so that we can compare the operation with pointer equality. */
 static const char *const DBUS_OP_SET_LINK_DEFAULT_ROUTE = "SetLinkDefaultRoute";
 static const char *const DBUS_OP_SET_LINK_DNS_OVER_TLS  = "SetLinkDNSOverTLS";
 static const char *const DBUS_OP_SET_LINK_DNS_EX        = "SetLinkDNSEx";
 static const char *const DBUS_OP_SET_LINK_DNSSEC        = "SetLinkDNSSEC";
+static const char *const DBUS_OP_FLUSH_CACHES           = "FlushCaches";
 
 /*****************************************************************************/
 
@@ -331,7 +337,7 @@ call_done(GObject *source, GAsyncResult *r, gpointer user_data)
                 _LOGD("systemd-resolved support for SetLinkDNSEx(): API not supported");
 
                 _LOGW("systemd-resolved does not support SetLinkDNSEx API (v246). "
-                      "Cannot set DoT server name (SNI)");
+                      "Cannot set server port or DoT server name (SNI)");
 
                 /* We need to reconfigure with the SetLinkDNS fallback.
                  *
@@ -402,6 +408,15 @@ update_add_ip_config(NMDnsSystemdResolved    *self,
         if (!nm_dns_uri_parse(ip_data->addr_family, strarr[i], &dns_server, NULL))
             continue;
 
+        /* systemd-resolved rejects the entire request if any of the name
+         * servers is invalid: the unspecified address or resolved's own
+         * DNS stub addresses. */
+        if (nm_ip_addr_is_null(ip_data->addr_family, &dns_server.addr))
+            continue;
+        if (NM_IS_IPv4(ip_data->addr_family)
+            && NM_IN_SET(ntohl(dns_server.addr.addr4), INADDR_DNS_STUB, INADDR_DNS_PROXY_STUB))
+            continue;
+
         if (!NM_IN_SET(dns_server.scheme,
                        NM_DNS_URI_SCHEME_TLS,
                        NM_DNS_URI_SCHEME_NONE,
@@ -414,7 +429,7 @@ update_add_ip_config(NMDnsSystemdResolved    *self,
             continue;
         }
 
-        if (dns_server.servername) {
+        if (dns_server.port != NM_DNS_PORT_UNDEFINED || dns_server.servername) {
             NM_SET_OUT(out_require_dns_ex, TRUE);
             if (priv->has_set_link_dns_ex == FALSE) {
                 /* The caller won't care about this result anymore. We can skip setting it. */
@@ -428,7 +443,7 @@ update_add_ip_config(NMDnsSystemdResolved    *self,
             g_variant_builder_add_value(
                 dns_ex,
                 nm_g_variant_new_ay((gconstpointer) &dns_server.addr, addr_size));
-            g_variant_builder_add(dns_ex, "q", 0);
+            g_variant_builder_add(dns_ex, "q", dns_server.port);
             g_variant_builder_add(dns_ex, "s", dns_server.servername ?: "");
             g_variant_builder_close(dns_ex);
         }
@@ -531,7 +546,7 @@ prepare_one_interface(NMDnsSystemdResolved *self, const InterfaceConfig *ic)
     if (!require_dns_ex) {
         /* No need to use the new API. SetLinkDNS() is sufficient. */
     } else if (!priv->has_set_link_dns_ex) {
-        /* API to set server name is not supported. Nothing we can do. */
+        /* API to set port and server name is not supported. Nothing we can do. */
         require_dns_ex = FALSE;
     } else {
         g_variant_builder_init(&dns_ex, G_VARIANT_TYPE("(ia(iayqs))"));
@@ -900,6 +915,13 @@ update(NMDnsPlugin             *plugin,
             };
             prepare_one_interface(self, &ic);
         }
+    }
+
+    /* If there are requests, append a FlushCaches() request since otherwise
+     * in some configurations network connectivity checks or automatic
+     * proxy configuration might fail. */
+    if (!c_list_is_empty(&priv->request_queue_lst_head)) {
+        _request_item_append(self, DBUS_OP_FLUSH_CACHES, 0, g_variant_new("()"));
     }
 
     priv->send_updates_waiting = TRUE;

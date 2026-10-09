@@ -378,7 +378,7 @@ _nm_connection_check_main_setting(NMConnection *connection,
 
     if (!nm_connection_is_type(connection, setting_name)) {
         nm_utils_error_set(error,
-                           NM_UTILS_ERROR_CONNECTION_AVAILABLE_INCOMPATIBLE,
+                           NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_INCOMPATIBLE,
                            "connection type is not \"%s\"",
                            setting_name);
         return NULL;
@@ -387,7 +387,7 @@ _nm_connection_check_main_setting(NMConnection *connection,
     setting = nm_connection_get_setting_by_name(connection, setting_name);
     if (!setting) {
         nm_utils_error_set(error,
-                           NM_UTILS_ERROR_CONNECTION_AVAILABLE_INCOMPATIBLE,
+                           NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_INCOMPATIBLE,
                            "connection misses \"%s\" settings",
                            setting_name);
         return NULL;
@@ -1109,7 +1109,7 @@ _nm_connection_detect_bluetooth_type(NMConnection *self)
 {
     NMSettingBluetooth *s_bt = nm_connection_get_setting_bluetooth(self);
 
-    if (s_bt && nm_setting_bluetooth_get_connection_type(s_bt)) {
+    if (s_bt && !nm_setting_bluetooth_get_connection_type(s_bt)) {
         if (nm_connection_get_setting_gsm(self) || nm_connection_get_setting_cdma(self))
             return NM_SETTING_BLUETOOTH_TYPE_DUN;
         if (nm_connection_get_setting_bridge(self))
@@ -1835,25 +1835,20 @@ _normalize_802_1x_empty_strings(NMConnection *self)
 static gboolean
 _normalize_required_settings(NMConnection *self)
 {
-    NMSettingBluetooth *s_bt = nm_connection_get_setting_bluetooth(self);
-    NMSetting          *s_bridge;
-    gboolean            changed = FALSE;
+    gboolean changed = FALSE;
 
-    if (nm_connection_get_setting_vlan(self) || nm_connection_get_setting_bridge(self)) {
-        if (!nm_connection_get_setting_wired(self)) {
-            nm_connection_add_setting(self, nm_setting_wired_new());
-            changed = TRUE;
-        }
+    if (_nm_connection_get_setting_bluetooth_for_nap(self)
+        && !nm_connection_get_setting_bridge(self)) {
+        nm_connection_add_setting(
+            self,
+            g_object_new(NM_TYPE_SETTING_BRIDGE, NM_SETTING_BRIDGE_STP, FALSE, NULL));
+        changed = TRUE;
     }
-    if (s_bt
-        && nm_streq0(nm_setting_bluetooth_get_connection_type(s_bt),
-                     NM_SETTING_BLUETOOTH_TYPE_NAP)) {
-        if (!nm_connection_get_setting_bridge(self)) {
-            s_bridge = nm_setting_bridge_new();
-            g_object_set(s_bridge, NM_SETTING_BRIDGE_STP, FALSE, NULL);
-            nm_connection_add_setting(self, s_bridge);
-            changed = TRUE;
-        }
+    /* Must run after the NAP block: its synthesized bridge needs a wired setting too. */
+    if ((nm_connection_get_setting_vlan(self) || nm_connection_get_setting_bridge(self))
+        && !nm_connection_get_setting_wired(self)) {
+        nm_connection_add_setting(self, nm_setting_wired_new());
+        changed = TRUE;
     }
     return changed;
 }
@@ -2756,9 +2751,9 @@ _nm_connection_find_secret(NMConnection              *self,
 {
     gs_unref_variant GVariant *dummy = NULL;
     FindSecretData             data  = {
-                     .find_func      = callback,
-                     .find_func_data = callback_data,
-                     .found          = FALSE,
+        .find_func      = callback,
+        .find_func_data = callback_data,
+        .found          = FALSE,
     };
 
     dummy = _nm_connection_for_each_secret(self, secrets, FALSE, find_secret_for_each_func, &data);

@@ -755,7 +755,7 @@ nm_supplicant_config_add_setting_wireless(NMSupplicantConfig *self,
 gboolean
 nm_supplicant_config_add_bgscan(NMSupplicantConfig *self,
                                 NMConnection       *connection,
-                                guint               num_seen_bssids,
+                                gboolean            multiple_aps,
                                 GError            **error)
 {
     NMSettingWireless         *s_wifi;
@@ -792,8 +792,13 @@ nm_supplicant_config_add_bgscan(NMSupplicantConfig *self,
      * in which we want more reliable roaming between APs. Thus trigger scans
      * when the signal is still somewhat OK so we have an up-to-date roam
      * candidate list when the signal gets bad.
+     *
+     * @multiple_aps is FALSE when the seen BSSIDs all belong to a single
+     * Wi-Fi 7 AP-MLD (per-link addresses of one physical AP); the caller
+     * determines this from the parsed Multi-Link element. See
+     * NMDeviceWifi.build_supplicant_config().
      */
-    if (num_seen_bssids > 1u
+    if (multiple_aps
         || ((s_wsec = nm_connection_get_setting_wireless_security(connection))
             && NM_IN_STRSET(nm_setting_wireless_security_get_key_mgmt(s_wsec),
                             "ieee8021x",
@@ -1512,7 +1517,7 @@ nm_supplicant_config_add_setting_8021x(NMSupplicantConfig *self,
     hdrs = 14; /* EAPOL + EAP-TLS */
     frag = 1280 - hdrs;
     if (mtu > hdrs)
-        frag = CLAMP(mtu - hdrs, 100, frag);
+        frag = NM_CLAMP(mtu - hdrs, 100u, frag);
     frag_str = g_strdup_printf("%u", frag);
 
     if (!nm_supplicant_config_add_option(self, "fragment_size", frag_str, -1, NULL, error))
@@ -1597,8 +1602,14 @@ nm_supplicant_config_add_setting_8021x(NMSupplicantConfig *self,
     g_string_free(phase2, TRUE);
 
     /* PAC file */
-    path = nm_setting_802_1x_get_pac_file(setting);
-    if (path) {
+    path  = nm_setting_802_1x_get_pac_file(setting);
+    bytes = priv->private_user && path ? nm_g_hash_table_lookup(files, path) : NULL;
+    if (bytes) {
+        if (!nm_supplicant_config_add_blob_for_connection(self, bytes, "pac_file", con_uuid, error))
+            return FALSE;
+    } else if (path) {
+        /* Private connections cannot use paths */
+        g_return_val_if_fail(!priv->private_user, FALSE);
         if (!add_string_val(self, path, "pac_file", FALSE, NULL, error))
             return FALSE;
     } else {
@@ -1637,6 +1648,15 @@ nm_supplicant_config_add_setting_8021x(NMSupplicantConfig *self,
     path = nm_setting_802_1x_get_ca_path(setting);
     path = ca_path_override ?: path;
     if (path) {
+        /* A directory cannot be passed as a blob, so private connections are
+         * limited to the system CA store */
+        if (priv->private_user && !ca_path_override) {
+            g_set_error_literal(error,
+                                NM_SUPPLICANT_ERROR,
+                                NM_SUPPLICANT_ERROR_CONFIG,
+                                "ca-path is not supported for private connections");
+            return FALSE;
+        }
         if (!add_string_val(self, path, "ca_path", FALSE, NULL, error))
             return FALSE;
     }
@@ -1645,6 +1665,15 @@ nm_supplicant_config_add_setting_8021x(NMSupplicantConfig *self,
     path = nm_setting_802_1x_get_phase2_ca_path(setting);
     path = ca_path_override ?: path;
     if (path) {
+        /* A directory cannot be passed as a blob, so private connections are
+         * limited to the system CA store */
+        if (priv->private_user && !ca_path_override) {
+            g_set_error_literal(error,
+                                NM_SUPPLICANT_ERROR,
+                                NM_SUPPLICANT_ERROR_CONFIG,
+                                "phase2-ca-path is not supported for private connections");
+            return FALSE;
+        }
         if (!add_string_val(self, path, "ca_path2", FALSE, NULL, error))
             return FALSE;
     }

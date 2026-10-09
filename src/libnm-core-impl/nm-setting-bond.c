@@ -159,12 +159,12 @@ static char const *const _option_default_strv_fail_over_mac[] =
 static char const *const _option_default_strv_lacp_rate[]   = NM_MAKE_STRV("slow", "fast");
 static char const *const _option_default_strv_lacp_active[] = NM_MAKE_STRV("off", "on");
 static char const *const _option_default_strv_mode[]        = NM_MAKE_STRV("balance-rr",
-                                                                    "active-backup",
-                                                                    "balance-xor",
-                                                                    "broadcast",
-                                                                    "802.3ad",
-                                                                    "balance-tlb",
-                                                                    "balance-alb");
+                                                                           "active-backup",
+                                                                           "balance-xor",
+                                                                           "broadcast",
+                                                                           "802.3ad",
+                                                                           "balance-tlb",
+                                                                           "balance-alb");
 static char const *const _option_default_strv_primary_reselect[] =
     NM_MAKE_STRV("always", "better", "failure");
 static char const *const _option_default_strv_xmit_hash_policy[] =
@@ -1343,13 +1343,6 @@ nm_setting_bond_class_init(NMSettingBondClass *klass)
      * must be strings. Option names must contain only alphanumeric characters
      * (ie, [a-zA-Z0-9]).
      **/
-    /* ---ifcfg-rh---
-     * property: options
-     * variable: BONDING_OPTS
-     * description: Bonding options.
-     * example: BONDING_OPTS="miimon=100 mode=broadcast"
-     * ---end---
-     */
     obj_properties[PROP_OPTIONS] = g_param_spec_boxed(
         NM_SETTING_BOND_OPTIONS,
         "",

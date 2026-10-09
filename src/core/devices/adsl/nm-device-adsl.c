@@ -85,7 +85,7 @@ check_connection_compatible(NMDevice     *device,
     if (nm_streq0(protocol, NM_SETTING_ADSL_PROTOCOL_IPOATM)) {
         /* FIXME: we don't yet support IPoATM */
         nm_utils_error_set_literal(error,
-                                   NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+                                   NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_OTHER,
                                    "IPoATM protocol is not yet supported");
         return FALSE;
     }
@@ -582,7 +582,7 @@ carrier_update_cb(gpointer user_data)
     char         *path;
 
     path    = g_strdup_printf("/sys/class/atm/%s/carrier",
-                           NM_ASSERT_VALID_PATH_COMPONENT(nm_device_get_iface(NM_DEVICE(self))));
+                              NM_ASSERT_VALID_PATH_COMPONENT(nm_device_get_iface(NM_DEVICE(self))));
     carrier = (int) nm_platform_sysctl_get_int_checked(nm_device_get_platform(NM_DEVICE(self)),
                                                        NMP_SYSCTL_PATHID_ABSOLUTE(path),
                                                        10,

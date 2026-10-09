@@ -30,7 +30,6 @@
 #define NM_CONFIG_KEYFILE_KEY_MAIN_HOSTNAME_MODE               "hostname-mode"
 #define NM_CONFIG_KEYFILE_KEY_MAIN_IGNORE_CARRIER              "ignore-carrier"
 #define NM_CONFIG_KEYFILE_KEY_MAIN_IWD_CONFIG_PATH             "iwd-config-path"
-#define NM_CONFIG_KEYFILE_KEY_MAIN_MIGRATE_IFCFG_RH            "migrate-ifcfg-rh"
 #define NM_CONFIG_KEYFILE_KEY_MAIN_MONITOR_CONNECTION_FILES    "monitor-connection-files"
 #define NM_CONFIG_KEYFILE_KEY_MAIN_NO_AUTO_DEFAULT             "no-auto-default"
 #define NM_CONFIG_KEYFILE_KEY_MAIN_PLUGINS                     "plugins"
@@ -69,12 +68,14 @@
 #define NM_CONFIG_KEYFILE_KEY_DEVICE_SRIOV_NUM_VFS              "sriov-num-vfs"
 #define NM_CONFIG_KEYFILE_KEY_DEVICE_KEEP_CONFIGURATION         "keep-configuration"
 #define NM_CONFIG_KEYFILE_KEY_DEVICE_ALLOWED_CONNECTIONS        "allowed-connections"
+#define NM_CONFIG_KEYFILE_KEY_DEVICE_INITRD_CONNECTIONS         "initrd-connections"
 #define NM_CONFIG_KEYFILE_KEY_DEVICE_WIFI_BACKEND               "wifi.backend"
 #define NM_CONFIG_KEYFILE_KEY_DEVICE_WIFI_SCAN_RAND_MAC_ADDRESS "wifi.scan-rand-mac-address"
 #define NM_CONFIG_KEYFILE_KEY_DEVICE_WIFI_SCAN_GENERATE_MAC_ADDRESS_MASK \
     "wifi.scan-generate-mac-address-mask"
 #define NM_CONFIG_KEYFILE_KEY_DEVICE_CARRIER_WAIT_TIMEOUT "carrier-wait-timeout"
 #define NM_CONFIG_KEYFILE_KEY_DEVICE_WIFI_IWD_AUTOCONNECT "wifi.iwd.autoconnect"
+#define NM_CONFIG_KEYFILE_KEY_DEVICE_WIFI_P2P_DEVICE_NAME "wifi-p2p.device-name"
 
 #define NM_CONFIG_KEYFILE_KEY_MATCH_DEVICE "match-device"
 #define NM_CONFIG_KEYFILE_KEY_STOP_MATCH   "stop-match"

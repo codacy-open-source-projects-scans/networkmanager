@@ -290,7 +290,7 @@ typedef enum NMSettingUpdateSecretResult {
 } NMSettingUpdateSecretResult;
 
 NMSettingUpdateSecretResult
-         _nm_setting_update_secrets(NMSetting *setting, GVariant *secrets, GError **error);
+_nm_setting_update_secrets(NMSetting *setting, GVariant *secrets, GError **error);
 gboolean _nm_setting_clear_secrets(NMSetting                       *setting,
                                    NMSettingClearSecretsWithFlagsFn func,
                                    gpointer                         user_data);
@@ -809,7 +809,8 @@ _nm_properties_override(GArray *properties_override, const NMSettInfoProperty *p
         G_STATIC_ASSERT(!NM_FLAGS_ANY((param_flags),                                              \
                                       ~(NM_SETTING_PARAM_SECRET | NM_SETTING_PARAM_FUZZY_IGNORE   \
                                         | NM_SETTING_PARAM_INFERRABLE | NM_SETTING_PARAM_REQUIRED \
-                                        | NM_SETTING_PARAM_REAPPLY_IMMEDIATELY)));                \
+                                        | NM_SETTING_PARAM_REAPPLY_IMMEDIATELY                    \
+                                        | NM_SETTING_PARAM_CERT_KEY_FILE)));                      \
                                                                                                   \
         nm_assert(_property_type);                                                                \
         nm_assert(g_variant_type_equal(_property_type->dbus_type, "s"));                          \
@@ -1041,7 +1042,7 @@ _nm_properties_override(GArray *properties_override, const NMSettInfoProperty *p
         GParamSpec               *spec           = _property_info->param_spec;                 \
         GType                     spec_gtype     = spec ? spec->value_type : G_TYPE_INVALID;   \
                                                                                                \
-        direct_nmtype == NM_VALUE_TYPE_ENUM &&direct_gtype &&G_TYPE_IS_ENUM(direct_gtype)      \
+        direct_nmtype == NM_VALUE_TYPE_ENUM && direct_gtype && G_TYPE_IS_ENUM(direct_gtype)    \
             && NM_IN_SET(spec_gtype, G_TYPE_INT, direct_gtype);                                \
     })
 

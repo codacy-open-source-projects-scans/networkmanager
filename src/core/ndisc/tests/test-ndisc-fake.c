@@ -175,6 +175,7 @@ test_simple_changed(NMNDisc              *ndisc,
                       data->timestamp_msec_1 + 10000,
                       data->timestamp_msec_1 + 10000);
         match_route(rdata, 0, "2001:db8:a:a::", 64, "fe80::1", data->timestamp_msec_1 + 10000, 10);
+        g_assert_cmpint(rdata->dns_servers_n, ==, 1);
         match_dns_server(rdata, 0, "2001:db8:c:c::1", data->timestamp_msec_1 + 10000);
         match_dns_domain(rdata, 0, "foobar.com", data->timestamp_msec_1 + 3500);
 
@@ -195,8 +196,8 @@ test_simple(void)
     gs_unref_object NMFakeNDisc       *ndisc    = ndisc_new();
     const gint64                       now_msec = nm_utils_get_monotonic_timestamp_msec();
     TestData                           data     = {
-                                      .loop             = loop,
-                                      .timestamp_msec_1 = now_msec,
+        .loop             = loop,
+        .timestamp_msec_1 = now_msec,
     };
     guint id;
 
@@ -213,6 +214,8 @@ test_simple(void)
                              now_msec + 10000,
                              10);
     nm_fake_ndisc_add_dns_server(ndisc, id, "2001:db8:c:c::1", now_msec + 10000);
+    /* the unspecified address is invalid and must be ignored. */
+    nm_fake_ndisc_add_dns_server(ndisc, id, "::", now_msec + 10000);
     nm_fake_ndisc_add_dns_domain(ndisc, id, "foobar.com", now_msec + 3500);
 
     g_signal_connect(ndisc, NM_NDISC_CONFIG_RECEIVED, G_CALLBACK(test_simple_changed), &data);
@@ -309,8 +312,8 @@ test_everything(void)
     gs_unref_object NMFakeNDisc       *ndisc    = ndisc_new();
     const gint64                       now_msec = nm_utils_get_monotonic_timestamp_msec();
     TestData                           data     = {
-                                      .loop             = loop,
-                                      .timestamp_msec_1 = now_msec,
+        .loop             = loop,
+        .timestamp_msec_1 = now_msec,
     };
     guint id;
 
@@ -413,8 +416,8 @@ test_preference_order(void)
     gs_unref_object NMFakeNDisc       *ndisc    = ndisc_new();
     const gint64                       now_msec = nm_utils_get_monotonic_timestamp_msec();
     TestData                           data     = {
-                                      .loop             = loop,
-                                      .timestamp_msec_1 = now_msec,
+        .loop             = loop,
+        .timestamp_msec_1 = now_msec,
     };
     guint id;
 
@@ -536,8 +539,8 @@ test_preference_changed(void)
     gs_unref_object NMFakeNDisc       *ndisc    = ndisc_new();
     const gint64                       now_msec = nm_utils_get_monotonic_timestamp_msec();
     TestData                           data     = {
-                                      .loop             = loop,
-                                      .timestamp_msec_1 = now_msec,
+        .loop             = loop,
+        .timestamp_msec_1 = now_msec,
     };
     guint id;
 
@@ -617,8 +620,8 @@ test_dns_solicit_loop(void)
     gs_unref_object NMFakeNDisc       *ndisc    = ndisc_new();
     const gint64                       now_msec = nm_utils_get_monotonic_timestamp_msec();
     TestData                           data     = {
-                                      .loop             = loop,
-                                      .timestamp_msec_1 = now_msec,
+        .loop             = loop,
+        .timestamp_msec_1 = now_msec,
     };
     guint id;
 

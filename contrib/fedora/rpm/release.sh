@@ -444,11 +444,13 @@ case "$RELEASE_MODE" in
         # is the release, so that `git log --first-parent` follows the path with the
         # release candidates, and not the devel part during that time. Hence this
         # switcheroo here.
-        git checkout -B "$TMP_BRANCH" "${VERSION_ARR[0]}.$((${VERSION_ARR[1]} - 1)).0" || die "merge0"
-        git merge -Xours --commit -m tmp main || die "merge1"
+        PREV_VERSION="${VERSION_ARR[0]}.$((${VERSION_ARR[1]} - 1)).0"
+        MERGE_MSG="merge: branch 'nm-${VERSION_ARR[0]}-$((${VERSION_ARR[1]} - 1))' ($PREV_VERSION release)"
+        git checkout -B "$TMP_BRANCH" "$PREV_VERSION" || die "merge0"
+        git merge -Xours --commit -m "$MERGE_MSG" main || die "merge1"
         git rm --cached -r . || die "merge2"
         git checkout main -- . || die "merge3"
-        git commit --amend -m tmp -a || die "failed to commit major version bump"
+        git commit --amend -m "$MERGE_MSG" -a || die "failed to commit major version bump"
         test x = "x$(git diff main HEAD)" || die "there is a diff after merge!"
 
         # Version is already correct in meson.build
@@ -525,8 +527,16 @@ if [[ $GITLAB_TOKEN == "" ]]; then
 fi
 
 # This step is not necessary for authentication, we use it only to provide a meaningful error message.
-GITLAB_USER_ID=$(curl --request GET --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-                      "https://gitlab.freedesktop.org/api/v4/personal_access_tokens/self" 2>/dev/null | jq ".user_id" || true)
+# The endpoint intermittently returns gateway errors, retry with backoff.
+GITLAB_USER_ID=
+BACKOFF=10
+for _ in 1 2 3; do
+    GITLAB_USER_ID=$(curl --request GET --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+                          "https://gitlab.freedesktop.org/api/v4/personal_access_tokens/self" 2>/dev/null | jq ".user_id" 2>/dev/null || true)
+    [ -n "$GITLAB_USER_ID" ] && [ "$GITLAB_USER_ID" != "null" ] && break
+    sleep "$BACKOFF"
+    BACKOFF=$((BACKOFF * 3))
+done
 if [ -z "$GITLAB_USER_ID" ] || [ "$GITLAB_USER_ID" = "null" ]; then
     die "failed to authenticate to gitlab.freedesktop.org with the private token"
 fi

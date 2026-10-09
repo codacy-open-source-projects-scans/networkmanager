@@ -281,11 +281,9 @@ UNAVAILABLE. The unmanaged flags are currently:
       (e.g. via a D-Bus command).
 
   - USER_SETTINGS: when unmanaged by user decision via the
-    settings plugin (for example `keyfile.unmanaged-devices` or
-    ifcfg-rh's `NM_CONTROLLED=no`). Although this is
-    user-configuration it cannot be overruled and is
-    authoritative. That is because users may depend on dropping a
-    ifcfg-rh file to ensure the device is unmanaged.
+    settings plugin (for example `keyfile.unmanaged-devices`).
+    Although this is user-configuration it cannot be overruled and is
+    authoritative.
 
   - USER_CONF: when unmanaged by user decision via the
     NetworkManager.conf ("unmanaged" in the [device]
@@ -317,6 +315,6 @@ touch the interface. The external status is tracked in the
 `managed-type` member, which can have the following values:
 
  - EXTERNAL: the interface is not touched by NM.
- - ASSUME: this value is deprecated; it used to mean that NM should manage the device without fully reconfiguring it. Now, the interface is either managed on external.
+ - ASSUME: this value is deprecated; it used to mean that NM should manage the device without fully reconfiguring it. Now, the interface is either managed or external.
  - FULL: the interface is fully managed.
  - REMOVED: the link was removed externally.

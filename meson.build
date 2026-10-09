@@ -5,7 +5,7 @@ project(
 # NOTE: When incrementing version also add corresponding
 #       NM_VERSION_x_y_z macros in
 #       "src/libnm-core-public/nm-version-macros.h.in"
-  version: '1.57.4-dev',
+  version: '1.59.2-dev',
   license: 'GPL2+',
   default_options: [
     'buildtype=debugoptimized',
@@ -329,14 +329,6 @@ glib_dep = declare_dependency(
   ]
 )
 
-enable_ifcfg_rh = get_option('ifcfg_rh')
-
-config_migrate_ifcfg_rh_default = get_option('config_migrate_ifcfg_rh_default').to_string()
-if config_migrate_ifcfg_rh_default == 'true'
-  assert(enable_ifcfg_rh, 'ifcfg-rh migration can be enabled by default only when the ifcfg-rh plugin is enabled')
-endif
-config_h.set_quoted('NM_CONFIG_DEFAULT_MAIN_MIGRATE_IFCFG_RH', config_migrate_ifcfg_rh_default)
-
 enable_ifupdown = get_option('ifupdown')
 if enable_ifupdown == 'auto'
   enable_ifupdown = (run_command('test', '-e', '/etc/debian_version', check: false).returncode() == 0)
@@ -347,7 +339,6 @@ endif
 config_plugins_default = get_option('config_plugins_default')
 config_h.set_quoted('NM_CONFIG_DEFAULT_MAIN_PLUGINS', config_plugins_default)
 
-config_h.set10('WITH_CONFIG_PLUGIN_IFCFG_RH', enable_ifcfg_rh)
 config_h.set10('WITH_CONFIG_PLUGIN_IFUPDOWN', enable_ifupdown)
 
 config_h.set_quoted('NM_DIST_VERSION', dist_version)
@@ -409,7 +400,8 @@ systemd_systemdsystemunitdir = get_option('systemdsystemunitdir')
 install_systemdunitdir = (systemd_systemdsystemunitdir != 'no')
 
 if install_systemdunitdir and systemd_systemdsystemunitdir == ''
-  assert(systemd_dep.found(), 'systemd required but not found, please provide a valid systemd user unit dir or disable it')
+  assert(systemd_dep.found(),
+         'systemd required to determine system unit directory. Install systemd.pc, pass -Dsystemdsystemunitdir=/path, or use -Dsystemdsystemunitdir=no.')
   systemd_systemdsystemunitdir = systemd_dep.get_variable(pkgconfig: 'systemdsystemunitdir', pkgconfig_define: ['rootprefix', nm_prefix])
 endif
 
@@ -417,13 +409,15 @@ systemd_systemdsystemgeneratordir = get_option('systemdsystemgeneratordir')
 install_systemdgeneratordir = (systemd_systemdsystemgeneratordir != 'no')
 
 if install_systemdgeneratordir and systemd_systemdsystemgeneratordir == ''
-  assert(systemd_dep.found(), 'systemd required but not found, please provide a valid systemd user generator dir or disable it')
+  assert(systemd_dep.found(),
+         'systemd required to determine system generator directory. Install systemd.pc, pass -Dsystemdsystemgeneratordir=/path, or use -Dsystemdsystemgeneratordir=no.')
   systemd_systemdsystemgeneratordir = systemd_dep.get_variable(pkgconfig: 'systemdsystemgeneratordir', pkgconfig_define: ['rootprefix', nm_prefix])
 endif
 
 enable_systemd_journal = get_option('systemd_journal')
 if enable_systemd_journal
-  assert(libsystemd_dep.found(), 'Missing systemd-journald support')
+  assert(libsystemd_dep.found(),
+         'systemd-journald support requires libsystemd. Use -Dsystemd_journal=false to disable it.')
 endif
 config_h.set10('SYSTEMD_JOURNAL', enable_systemd_journal)
 
@@ -448,7 +442,8 @@ if session_tracking == 'systemd'
   logind_dep = libsystemd_dep
   if not logind_dep.found()
     logind_dep = dependency('libsystemd-login', required: false)
-    assert(logind_dep.found(), 'You must have libsystemd or libsystemd-login installed to build with systemd-logind support')
+    assert(logind_dep.found(),
+           'systemd-logind support requires libsystemd or libsystemd-login. Use -Dsession_tracking=no or -Dsession_tracking=elogind.')
   endif
   session_trackers += 'systemd-logind'
   config_h.set10('SESSION_TRACKING_SYSTEMD', true)
@@ -624,7 +619,7 @@ if enable_ppp
     pppd_version = pppd_dep.version()
     NM_PPP_VERSION_2_5_OR_NEWER = true
   else
-    assert(cc.has_header('pppd/pppd.h'), 'couldn\'t find pppd.h. pppd development headers are required')
+    assert(cc.has_header('pppd/pppd.h'), 'couldn\'t find pppd.h. pppd development headers are required. Use -Dppp=false to build without it.')
     pppd_version = '2.4.9'
   endif
 
@@ -681,7 +676,7 @@ config_dhcp_default = get_option('config_dhcp_default')
 config_h.set_quoted('NM_CONFIG_DEFAULT_MAIN_DHCP', config_dhcp_default)
 config_dhcp_clients_enabled = [ 'internal' ]
 dhcp_summary = ''
-foreach client : [ 'dhcpcd', 'dhclient' ]
+foreach client : [ 'dhcpcd' ]
   client_path = get_option(client)
   client_enable = (client_path != 'no')
   if client_enable
@@ -712,9 +707,6 @@ foreach client : [ 'dhcpcd', 'dhclient' ]
   if (client_enable)
     dhcp_summary += (' ' + client_path)
     config_dhcp_clients_enabled += client
-  endif
-  if (client == 'dhclient')
-    dhcp_summary += ' (deprecated)'
   endif
   dhcp_summary += '\n'
 endforeach
@@ -853,6 +845,8 @@ enable_nmtui = get_option('nmtui')
 if enable_nmtui
   newt_dep = dependency('libnewt', version: '>= 0.52.15', required: false)
   assert(newt_dep.found(), 'You must have libnewt installed to build nmtui. Use -Dnmtui=false to disable it')
+  slang_dep = dependency('slang', required: false)
+  assert(slang_dep.found(), 'You must have slang installed to build nmtui. Use -Dnmtui=false to disable it')
 endif
 
 enable_nm_cloud_setup = get_option('nm_cloud_setup')
@@ -909,7 +903,7 @@ else
     enable_vapi = false
   endif
 
-  if enable_vapi and not add_languages('vala', required: false)
+  if enable_vapi and not add_languages('vala', native: false, required: false)
     assert(vapi_opt != 'true', 'vala is required to build. Use -Dvapi=false to disable it')
     enable_vapi = false
   endif
@@ -977,8 +971,10 @@ if python.found()
   config_h.set_quoted('TEST_NM_PYTHON', python_path)
 endif
 
+enable_initrd = get_option('initrd')
+
 # libnvme (NBFT support)
-enable_nbft = get_option('nbft')
+enable_nbft = get_option('nbft') and enable_initrd
 if enable_nbft
   libnvme_dep = dependency('libnvme', version: '>= 1.5', required: false)
   assert(libnvme_dep.found(), 'NBFT support was requested, but the libnvme library is not available. Use -Dnbft=false to build without it.')
@@ -986,13 +982,11 @@ endif
 config_h.set10('WITH_NBFT', enable_nbft)
 
 data_conf = configuration_data()
-data_conf.set('DISTRO_NETWORK_SERVICE',                  (enable_ifcfg_rh ? 'network.service' : ''))
 data_conf.set('NM_CONFIG_DEFAULT_LOGGING_AUDIT_TEXT',    config_default_logging_audit)
 data_conf.set('NM_CONFIG_DEFAULT_LOGGING_BACKEND_TEXT',  config_logging_backend_default)
 data_conf.set('NM_CONFIG_DEFAULT_MAIN_AUTH_POLKIT_TEXT', config_auth_polkit_default)
 data_conf.set('NM_CONFIG_DEFAULT_MAIN_DHCP',             config_dhcp_default)
 data_conf.set('NM_CONFIG_DEFAULT_MAIN_RC_MANAGER',       config_dns_rc_manager_default)
-data_conf.set('NM_CONFIG_DEFAULT_MAIN_MIGRATE_IFCFG_RH_TEXT', config_migrate_ifcfg_rh_default)
 data_conf.set('NM_CONFIG_DEFAULT_WIFI_BACKEND_TEXT',     config_wifi_backend_default)
 data_conf.set('NM_DHCP_CLIENTS_ENABLED',                 ', '.join(config_dhcp_clients_enabled))
 data_conf.set('NM_MAJOR_VERSION',                        nm_major_version)
@@ -1017,12 +1011,13 @@ subdir('po')
 
 if enable_vapi
   subdir('vapi')
-endif
 
-test(
-  'check-vapi',
-  find_program(join_paths(source_root, 'tools', 'check-vapi.sh')),
-)
+  test(
+    'check-vapi',
+    find_program(join_paths(source_root, 'tools', 'check-vapi.sh')),
+    args: [build_root / 'vapi' / 'libnm.vapi'],
+  )
+endif
 
 test(
   'check-nm-autoptr',
@@ -1040,7 +1035,7 @@ if enable_qt != 'false'
   # If enable_qt=='yes' we have all the dependencies. If it's 'auto', skip
   # building the Qt examples if any dependency is missing.
   if qt_core_dep.found() and qt_dbus_dep.found() and qt_network_dep.found()
-    add_languages('cpp')
+    add_languages('cpp', native: false)
     subdir('examples/C/qt')
   endif
 endif
@@ -1104,7 +1099,6 @@ meson.add_install_script(
   nm_mandir,
   nm_sysconfdir,
   enable_man ? '1' : '0',
-  enable_ifcfg_rh ? '1' : '0',
   enable_nm_cloud_setup ? '1' : '0',
   install_systemdunitdir ? '1' : '0',
 )
@@ -1160,9 +1154,8 @@ output += '  clat: ' + enable_clat.to_string() + '\n'
 output += '  nmcli: ' + enable_nmcli.to_string() + '\n'
 output += '  nmtui: ' + enable_nmtui.to_string() + '\n'
 output += '  nm-cloud-setup: ' + enable_nm_cloud_setup.to_string() + '\n'
+output += '  initrd: ' + enable_initrd.to_string() + '\n'
 output += '\nConfiguration_plugins (main.plugins=' + config_plugins_default + ')\n'
-output += '  ifcfg-rh: ' + enable_ifcfg_rh.to_string() + ' (deprecated)\n'
-output += '    default value of main.migrate-ifcfg-rh: ' +  config_migrate_ifcfg_rh_default + '\n'
 output += '  ifupdown: ' + enable_ifupdown.to_string() + '\n'
 output += '\nHandlers for /etc/resolv.conf:\n' + resolv_conf_summary
 output += '\n'

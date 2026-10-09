@@ -6,6 +6,7 @@
 #include "src/core/nm-default-daemon.h"
 
 #include "devices/wifi/nm-wifi-utils.h"
+#include "devices/wifi/nm-wifi-ap.h"
 #include "devices/wifi/nm-device-wifi.h"
 #include "libnm-core-intern/nm-core-internal.h"
 
@@ -240,14 +241,14 @@ test_lock_bssid(void)
 
     src      = nm_simple_connection_new();
     success  = complete_connection(ssid,
-                                  bssid,
-                                  _NM_802_11_MODE_INFRA,
-                                  NM_802_11_AP_FLAGS_NONE,
-                                  NM_802_11_AP_SEC_NONE,
-                                  NM_802_11_AP_SEC_NONE,
-                                  TRUE,
-                                  src,
-                                  &error);
+                                   bssid,
+                                   _NM_802_11_MODE_INFRA,
+                                   NM_802_11_AP_FLAGS_NONE,
+                                   NM_802_11_AP_SEC_NONE,
+                                   NM_802_11_AP_SEC_NONE,
+                                   TRUE,
+                                   src,
+                                   &error);
     expected = create_basic(ssid, bssid, _NM_802_11_MODE_INFRA);
     COMPARE(src, expected, success, error, 0, 0);
 
@@ -272,14 +273,14 @@ test_open_ap_empty_connection(void)
 
     src      = nm_simple_connection_new();
     success  = complete_connection(ssid,
-                                  bssid,
-                                  _NM_802_11_MODE_INFRA,
-                                  NM_802_11_AP_FLAGS_NONE,
-                                  NM_802_11_AP_SEC_NONE,
-                                  NM_802_11_AP_SEC_NONE,
-                                  FALSE,
-                                  src,
-                                  &error);
+                                   bssid,
+                                   _NM_802_11_MODE_INFRA,
+                                   NM_802_11_AP_FLAGS_NONE,
+                                   NM_802_11_AP_SEC_NONE,
+                                   NM_802_11_AP_SEC_NONE,
+                                   FALSE,
+                                   src,
+                                   &error);
     expected = create_basic(ssid, NULL, _NM_802_11_MODE_INFRA);
     COMPARE(src, expected, success, error, 0, 0);
 
@@ -1459,6 +1460,104 @@ test_ssids_options_to_ptrarray(void)
 
 /*****************************************************************************/
 
+static void
+test_wps_key_to_psk(void)
+{
+    static const struct {
+        const char *key;
+        gsize       key_len;
+        gboolean    valid;
+    } cases[] = {
+        {"12345678", 8, TRUE},
+        {"supersecret123", 14, TRUE},
+        {"caf\xc3\xa9_key", 9, TRUE},
+        {"123456789012345678901234567890123456789012345678901234567890123", 63, TRUE},
+        {"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", 64, TRUE},
+        {"0123456789ABCDEF0123456789abcdef0123456789abcdef0123456789abcdeF", 64, TRUE},
+        {"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdeg", 64, FALSE},
+        {"", 0, FALSE},
+        {"1234567", 7, FALSE},
+        {"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0", 65, FALSE},
+        {"abc\xff"
+         "def123",
+         10,
+         FALSE},
+        {"0123456789abcdef0123456789abcdef\0"
+         "23456789abcdef0123456789abcdef0",
+         64,
+         FALSE},
+    };
+    gsize i;
+
+    for (i = 0; i < G_N_ELEMENTS(cases); i++) {
+        char     psk[65];
+        gboolean ok;
+
+        ok = nm_wifi_utils_wps_key_to_psk((const guint8 *) cases[i].key, cases[i].key_len, &psk);
+        g_assert_cmpint(ok, ==, cases[i].valid);
+        if (ok) {
+            g_assert_cmpmem(psk, cases[i].key_len, cases[i].key, cases[i].key_len);
+            g_assert_cmpint(psk[cases[i].key_len], ==, '\0');
+        }
+    }
+}
+
+/*****************************************************************************/
+
+static void
+test_ap_check_compatible_band(void)
+{
+    gs_unref_object NMWifiAP     *ap_no_freq    = NULL;
+    gs_unref_object NMWifiAP     *ap_open       = NULL;
+    gs_unref_object NMWifiAP     *ap_rsn        = NULL;
+    gs_unref_object NMConnection *conn_ap       = NULL;
+    gs_unref_object NMConnection *conn          = NULL;
+    const KeyData                 band_a[]      = {{NM_SETTING_WIRELESS_BAND, "a", 0}, {NULL}};
+    const KeyData                 band_bg[]     = {{NM_SETTING_WIRELESS_BAND, "bg", 0}, {NULL}};
+    const KeyData                 band_a_ch36[] = {{NM_SETTING_WIRELESS_BAND, "a", 0},
+                                                   {NM_SETTING_WIRELESS_CHANNEL, NULL, 36},
+                                                   {NULL}};
+    const KeyData                 band_a_ch40[] = {{NM_SETTING_WIRELESS_BAND, "a", 0},
+                                                   {NM_SETTING_WIRELESS_CHANNEL, NULL, 40},
+                                                   {NULL}};
+    const KeyData wsec_psk[] = {{NM_SETTING_WIRELESS_SECURITY_KEY_MGMT, "wpa-psk", 0},
+                                {NM_SETTING_WIRELESS_SECURITY_PROTO, "rsn", 0},
+                                {NULL}};
+
+    /* An AP with unknown frequency never matches a profile that requires a band. */
+    conn       = create_basic("hidden", NULL, _NM_802_11_MODE_INFRA);
+    ap_no_freq = nm_wifi_ap_new_fake_from_connection(conn);
+    g_assert(ap_no_freq);
+
+    fill_wifi(conn, band_a);
+    g_assert(!nm_wifi_ap_check_compatible(ap_no_freq, conn));
+
+    conn_ap = create_basic("hidden", NULL, _NM_802_11_MODE_INFRA);
+    fill_wifi(conn_ap, band_a_ch36);
+    ap_open = nm_wifi_ap_new_fake_from_connection(conn_ap);
+    g_assert(ap_open);
+
+    g_assert(nm_wifi_ap_check_compatible(ap_open, conn));
+
+    fill_wifi(conn, band_bg);
+    g_assert(!nm_wifi_ap_check_compatible(ap_open, conn));
+
+    /* A matching band must not skip the channel check. */
+    fill_wifi(conn, band_a_ch40);
+    g_assert(!nm_wifi_ap_check_compatible(ap_open, conn));
+
+    /* A matching band must not skip the security check. */
+    fill_wsec(conn_ap, wsec_psk);
+    ap_rsn = nm_wifi_ap_new_fake_from_connection(conn_ap);
+    g_assert(ap_rsn);
+
+    fill_wifi(conn, band_a_ch36);
+    g_assert(nm_wifi_ap_check_compatible(ap_open, conn));
+    g_assert(!nm_wifi_ap_check_compatible(ap_rsn, conn));
+}
+
+/*****************************************************************************/
+
 NMTST_DEFINE();
 
 int
@@ -1604,6 +1703,10 @@ main(int argc, char **argv)
     g_test_add_func("/wifi/strength/all", test_strength_all);
 
     g_test_add_func("/wifi/ssids_options_to_ptrarray", test_ssids_options_to_ptrarray);
+
+    g_test_add_func("/wifi/wps_key_to_psk", test_wps_key_to_psk);
+
+    g_test_add_func("/wifi/ap/check_compatible_band", test_ap_check_compatible_band);
 
     return g_test_run();
 }

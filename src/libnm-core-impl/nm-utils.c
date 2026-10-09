@@ -4630,9 +4630,14 @@ _nm_utils_wps_method_validate(NMSettingWirelessSecurityWpsMethod wps_method,
                               const char                        *setting_name,
                               const char                        *property_name,
                               gboolean                           wps_required,
+                              gboolean                           allow_pin_display,
                               GError                           **error)
 {
-    if (wps_method > NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_PIN) {
+    /* The PIN-display method is only implemented for Wi-Fi P2P, and it cannot
+     * be combined with any other method. */
+    if (wps_method > NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_PIN
+        && !(allow_pin_display
+             && wps_method == NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_PIN_DISPLAY)) {
         g_set_error_literal(error,
                             NM_CONNECTION_ERROR,
                             NM_CONNECTION_ERROR_INVALID_PROPERTY,
@@ -6423,8 +6428,8 @@ nm_utils_copy_cert_as_user(const char *filename, const char *user, GError **erro
     gs_unref_bytes GBytes *bytes      = NULL;
     char                   dst_path[] = RUN_CERT_DIR "/XXXXXX";
     HelperInfo             info       = {
-                          .child_stdout = -1,
-                          .child_stderr = -1,
+        .child_stdout = -1,
+        .child_stderr = -1,
     };
     GMainContext *context;
     int           fd = -1;
@@ -6506,7 +6511,7 @@ nm_utils_copy_cert_as_user(const char *filename, const char *user, GError **erro
     nm_str_buf_destroy(&info.output_buffer);
     nm_str_buf_destroy(&info.error_buffer);
 
-    mkdir(RUN_CERT_DIR, 0600);
+    mkdir(RUN_CERT_DIR, 0700);
     fd = mkstemp(dst_path);
     if (fd < 0) {
         g_set_error_literal(error,

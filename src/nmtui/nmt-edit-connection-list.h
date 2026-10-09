@@ -32,6 +32,7 @@ typedef struct {
     void (*add_connection)(NmtEditConnectionList *list);
     void (*edit_connection)(NmtEditConnectionList *list, NMConnection *connection);
     void (*remove_connection)(NmtEditConnectionList *list, NMRemoteConnection *connection);
+    void (*share_connection)(NmtEditConnectionList *list, NMConnection *connection);
 } NmtEditConnectionListClass;
 
 GType nmt_edit_connection_list_get_type(void);
@@ -41,5 +42,7 @@ typedef gboolean (*NmtEditConnectionListFilter)(NmtEditConnectionList *list,
                                                 gpointer               user_data);
 
 void nmt_edit_connection_list_recommit(NmtEditConnectionList *list);
+
+void nmt_edit_connection_list_bind_search(NmtEditConnectionList *list, NmtNewtForm *form);
 
 #endif /* NMT_EDIT_CONNECTION_LIST_H */

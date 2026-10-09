@@ -514,8 +514,8 @@ typedef struct _NMDevicePrivate {
     char                *firmware_version;
     bool                 firmware_missing : 1;
     bool                 nm_plugin_missing : 1;
-    bool
-        hw_addr_perm_fake : 1; /* whether the permanent HW address could not be read and is a fake */
+    bool                 hw_addr_perm_fake
+        : 1; /* whether the permanent HW address could not be read and is a fake */
 
     guint8 in_state_changed : 4;
 
@@ -1294,7 +1294,7 @@ _prop_get_ipv6_dhcp_duid(NMDevice     *self,
             gint64  time;
             guint32 timestamp;
 
-#define EPOCH_DATETIME_THREE_YEARS (356 * 24 * 3600 * 3)
+#define EPOCH_DATETIME_THREE_YEARS (365 * 24 * 3600 * 3)
 
             /* We want a variable time between the host_id timestamp and three years
              * before. Let's compute the time (in seconds) from 0 to 3 years; then we'll
@@ -2208,9 +2208,9 @@ static gboolean
 _prop_get_ipvx_dhcp_send_hostname(NMDevice *self, int addr_family)
 {
     const int          IS_IPv4 = NM_IS_IPv4(addr_family);
-    NMSettingIPConfig *s_ip    = IS_IPv4
-                                     ? nm_device_get_applied_setting(self, NM_TYPE_SETTING_IP4_CONFIG)
-                                     : nm_device_get_applied_setting(self, NM_TYPE_SETTING_IP6_CONFIG);
+    NMSettingIPConfig *s_ip = IS_IPv4
+                                  ? nm_device_get_applied_setting(self, NM_TYPE_SETTING_IP4_CONFIG)
+                                  : nm_device_get_applied_setting(self, NM_TYPE_SETTING_IP6_CONFIG);
     gboolean           send_hostname;
     gboolean           send_hostname_v2;
 
@@ -6454,7 +6454,7 @@ concheck_periodic_schedule_do(NMDevice *self, int addr_family, gint64 now_ns)
 
     expiry = priv->concheck_x[IS_IPv4].p_cur_basetime_ns
              + (priv->concheck_x[IS_IPv4].p_cur_interval * NM_UTILS_NSEC_PER_SEC);
-    tdiff = expiry - now_ns;
+    tdiff  = expiry - now_ns;
 
     _LOGT(LOGD_CONCHECK,
           "connectivity: [IPv%c] periodic-check: %sscheduled in %lld milliseconds (%u seconds "
@@ -6635,7 +6635,7 @@ concheck_periodic_schedule_set(NMDevice *self, int addr_family, ConcheckSchedule
      * the connectivity check. */
     new_expiry = priv->concheck_x[IS_IPv4].p_cur_basetime_ns
                  + (priv->concheck_x[IS_IPv4].p_cur_interval * NM_UTILS_NSEC_PER_SEC);
-    tdiff = NM_MAX(new_expiry - nm_utils_get_monotonic_timestamp_nsec_cached(&now_ns), 0);
+    tdiff      = NM_MAX(new_expiry - nm_utils_get_monotonic_timestamp_nsec_cached(&now_ns), 0);
     priv->concheck_x[IS_IPv4].p_cur_basetime_ns =
         now_ns + tdiff - (priv->concheck_x[IS_IPv4].p_cur_interval * NM_UTILS_NSEC_PER_SEC);
     concheck_periodic_schedule_do(self, addr_family, now_ns);
@@ -7169,12 +7169,12 @@ nm_device_controller_attach_port(NMDevice *self, NMDevice *port, NMConnection *c
         info->cancellable = g_cancellable_new();
         info->port_state  = PORT_STATE_ATTACHING;
         success           = NM_DEVICE_GET_CLASS(self)->attach_port(self,
-                                                         port,
-                                                         connection,
-                                                         configure,
-                                                         info->cancellable,
-                                                         attach_port_cb,
-                                                         port);
+                                                                   port,
+                                                                   connection,
+                                                                   configure,
+                                                                   info->cancellable,
+                                                                   attach_port_cb,
+                                                                   port);
 
         if (success == NM_TERNARY_DEFAULT)
             return;
@@ -7278,6 +7278,8 @@ nm_device_controller_release_port(NMDevice           *self,
         if (ret == NM_TERNARY_DEFAULT) {
             port_priv->port_detach_count++;
             port_priv->port_detach_reason = reason;
+        } else {
+            g_object_unref(port);
         }
     }
 
@@ -7885,6 +7887,12 @@ device_link_changed(gpointer user_data)
                                                NM_UNMANAGED_PLATFORM_INIT,
                                                NM_UNMAN_FLAG_OP_SET_MANAGED,
                                                nm_device_get_manage_reason_external(self));
+
+        /* Now that we got UDEV's announcement we need to check ignore-carrier again.
+         * This is because the permanent MAC might have been set or changed. If we don't
+         * recheck we would ignore rules matching by MAC address. */
+        priv->ignore_carrier =
+            nm_config_data_get_ignore_carrier_by_device(nm_config_get_data(nm_config_get()), self);
     }
 
     _dev_unmanaged_check_external_down(self, FALSE, FALSE);
@@ -8561,10 +8569,13 @@ realize_start_setup(NMDevice             *self,
     nm_device_update_initial_hw_address(self);
     nm_device_update_permanent_hw_address(self, FALSE);
 
-    /* Note: initial hardware address must be read before calling get_ignore_carrier() */
+    /* Note: initial hardware address must be read before calling get_ignore_carrier(). We'll
+     * need to recheck ignore_carrier again after UDEV's announcement, as the permanent MAC
+     * address may be set by UDEV. */
     config = nm_config_get();
     priv->ignore_carrier =
         nm_config_data_get_ignore_carrier_by_device(nm_config_get_data(config), self);
+
     if (!priv->config_changed_id) {
         priv->config_changed_id = g_signal_connect(config,
                                                    NM_CONFIG_SIGNAL_CONFIG_CHANGED,
@@ -9944,6 +9955,26 @@ check_connection_compatible(NMDevice     *self,
     gboolean              has_match = FALSE;
     NMSettingSriov       *s_sriov   = NULL;
 
+    conn_iface = nm_manager_get_connection_iface(NM_MANAGER_GET, connection, NULL, NULL, &local);
+
+    /* We always need a interface name for virtual devices, but for
+     * physical ones a connection without interface name is fine for
+     * any device. */
+    if (!conn_iface) {
+        if (nm_connection_is_virtual(connection)) {
+            nm_utils_error_set(error,
+                               NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_OTHER,
+                               "cannot get interface name due to %s",
+                               local->message);
+            return FALSE;
+        }
+    } else if (!nm_streq0(conn_iface, device_iface)) {
+        nm_utils_error_set_literal(error,
+                                   NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_INCOMPATIBLE_NAME,
+                                   "mismatching interface name");
+        return FALSE;
+    }
+
     klass = NM_DEVICE_GET_CLASS(self);
     if (klass->connection_type_check_compatible) {
         if (!_nm_connection_check_main_setting(connection,
@@ -9955,38 +9986,8 @@ check_connection_compatible(NMDevice     *self,
          * connection_type_check_compatible. That means, it is by default not compatible
          * with any connection type. */
         nm_utils_error_set_literal(error,
-                                   NM_UTILS_ERROR_CONNECTION_AVAILABLE_INCOMPATIBLE,
+                                   NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_INCOMPATIBLE,
                                    "device does not support any connections");
-        return FALSE;
-    }
-
-    if (!nm_device_has_capability(self, NM_DEVICE_CAP_SRIOV)) {
-        s_sriov = (NMSettingSriov *) nm_connection_get_setting(connection, NM_TYPE_SETTING_SRIOV);
-        if (s_sriov && nm_setting_sriov_get_total_vfs(s_sriov)) {
-            nm_utils_error_set_literal(error,
-                                       NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
-                                       "device does not support SR-IOV");
-            return FALSE;
-        }
-    }
-
-    conn_iface = nm_manager_get_connection_iface(NM_MANAGER_GET, connection, NULL, NULL, &local);
-
-    /* We always need a interface name for virtual devices, but for
-     * physical ones a connection without interface name is fine for
-     * any device. */
-    if (!conn_iface) {
-        if (nm_connection_is_virtual(connection)) {
-            nm_utils_error_set(error,
-                               NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
-                               "cannot get interface name due to %s",
-                               local->message);
-            return FALSE;
-        }
-    } else if (!nm_streq0(conn_iface, device_iface)) {
-        nm_utils_error_set_literal(error,
-                                   NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
-                                   "mismatching interface name");
         return FALSE;
     }
 
@@ -9998,8 +9999,25 @@ check_connection_compatible(NMDevice     *self,
         patterns = nm_setting_match_get_interface_names(s_match, &num_patterns);
         if (num_patterns > 0 && !nm_wildcard_match_check(device_iface, patterns, num_patterns)) {
             nm_utils_error_set_literal(error,
-                                       NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+                                       NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_INCOMPATIBLE,
                                        "device does not satisfy match.interface-name property");
+            return FALSE;
+        }
+
+        patterns = nm_setting_match_get_drivers(s_match, &num_patterns);
+        if (num_patterns > 0
+            && !nm_wildcard_match_check(nm_device_get_driver(self), patterns, num_patterns)) {
+            nm_utils_error_set_literal(error,
+                                       NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_INCOMPATIBLE,
+                                       "device does not satisfy match.driver property");
+            return FALSE;
+        }
+
+        patterns = nm_setting_match_get_paths(s_match, &num_patterns);
+        if (num_patterns > 0 && !nm_wildcard_match_check(priv->path, patterns, num_patterns)) {
+            nm_utils_error_set_literal(error,
+                                       NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_INCOMPATIBLE,
+                                       "device does not satisfy match.path property");
             return FALSE;
         }
 
@@ -10010,32 +10028,25 @@ check_connection_compatible(NMDevice     *self,
                                                     num_patterns,
                                                     error))
             return FALSE;
-
-        patterns = nm_setting_match_get_drivers(s_match, &num_patterns);
-        if (num_patterns > 0
-            && !nm_wildcard_match_check(nm_device_get_driver(self), patterns, num_patterns)) {
-            nm_utils_error_set_literal(error,
-                                       NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
-                                       "device does not satisfy match.driver property");
-            return FALSE;
-        }
-
-        patterns = nm_setting_match_get_paths(s_match, &num_patterns);
-        if (num_patterns > 0 && !nm_wildcard_match_check(priv->path, patterns, num_patterns)) {
-            nm_utils_error_set_literal(error,
-                                       NM_UTILS_ERROR_CONNECTION_AVAILABLE_INCOMPATIBLE,
-                                       "device does not satisfy match.path property");
-            return FALSE;
-        }
     }
 
     specs =
         nm_config_data_get_device_allowed_connections_specs(NM_CONFIG_GET_DATA, self, &has_match);
     if (has_match && !nm_utils_connection_match_spec_list(connection, specs, FALSE)) {
         nm_utils_error_set_literal(error,
-                                   NM_UTILS_ERROR_CONNECTION_AVAILABLE_DISALLOWED,
+                                   NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_DISALLOWED,
                                    "device configuration doesn't allow this connection");
         return FALSE;
+    }
+
+    if (!nm_device_has_capability(self, NM_DEVICE_CAP_SRIOV)) {
+        s_sriov = (NMSettingSriov *) nm_connection_get_setting(connection, NM_TYPE_SETTING_SRIOV);
+        if (s_sriov && nm_setting_sriov_get_total_vfs(s_sriov)) {
+            nm_utils_error_set_literal(error,
+                                       NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_OTHER,
+                                       "device does not support SR-IOV");
+            return FALSE;
+        }
     }
 
     return TRUE;
@@ -10046,7 +10057,7 @@ check_connection_compatible(NMDevice     *self,
  * @self: an #NMDevice
  * @connection: an #NMConnection
  * @error: optional reason why it is incompatible. Note that the
- *   error code is set to %NM_UTILS_ERROR_CONNECTION_AVAILABLE_INCOMPATIBLE,
+ *   error code is set to %NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_INCOMPATIBLE,
  *   if the profile is fundamentally incompatible with the device
  *   (most commonly, because the device-type does not support the
  *   connection-type).
@@ -10776,8 +10787,11 @@ lldp_setup(NMDevice *self, NMTernary enabled)
     if (enabled && !priv->lldp_listener) {
         gs_free_error GError *error = NULL;
 
-        priv->lldp_listener =
-            nm_lldp_listener_new(ifindex, _lldp_neighbors_changed_cb, self, &error);
+        priv->lldp_listener = nm_lldp_listener_new(ifindex,
+                                                   nm_device_get_hw_address(self),
+                                                   _lldp_neighbors_changed_cb,
+                                                   self,
+                                                   &error);
         if (!priv->lldp_listener) {
             /* This really shouldn't happen. It's likely a bug. Investigate when this happens! */
             _LOGW(LOGD_DEVICE,
@@ -12762,12 +12776,12 @@ _commit_mtu(NMDevice *self)
     ({                                                                                         \
         if (!ip6_mtu_sysctl.initialized) {                                                     \
             ip6_mtu_sysctl.value       = nm_device_sysctl_ip_conf_get_int_checked(self,        \
-                                                                            AF_INET6,    \
-                                                                            "mtu",       \
-                                                                            10,          \
-                                                                            0,           \
-                                                                            G_MAXUINT32, \
-                                                                            0);          \
+                                                                                  AF_INET6,    \
+                                                                                  "mtu",       \
+                                                                                  10,          \
+                                                                                  0,           \
+                                                                                  G_MAXUINT32, \
+                                                                                  0);          \
             ip6_mtu_sysctl.initialized = TRUE;                                                 \
         }                                                                                      \
         ip6_mtu_sysctl.value;                                                                  \
@@ -13419,8 +13433,6 @@ activate_stage3_ip_config_for_addr_family(NMDevice *self, int addr_family)
         if (priv->ipll_data_4.v4.mode == NM_SETTING_IP4_LL_ENABLED)
             _dev_ipll4_start(self);
 
-        _dev_ipforwarding4_start(self, addr_family);
-
         if (nm_streq(priv->ipv4_method, NM_SETTING_IP4_CONFIG_METHOD_AUTO))
             _dev_ipdhcpx_start(self, AF_INET);
         else if (nm_streq(priv->ipv4_method, NM_SETTING_IP4_CONFIG_METHOD_LINK_LOCAL)) {
@@ -13489,6 +13501,9 @@ activate_stage3_ip_config_for_addr_family(NMDevice *self, int addr_family)
     }
 
 out_devip:
+    if (IS_IPv4 && nm_device_get_ip_ifindex(self) > 0)
+        _dev_ipforwarding4_start(self, addr_family);
+
     if (klass->act_stage3_ip_config)
         klass->act_stage3_ip_config(self, addr_family);
 
@@ -13799,7 +13814,7 @@ _dev_ipshared4_new_l3cd(NMDevice *self, NMConnection *connection, NMPlatformIP4A
     nm_auto_unref_l3cd_init NML3ConfigData *l3cd = NULL;
     NMSettingIPConfig                      *s_ip4;
     NMPlatformIP4Address                    address = {
-                           .addr_source = NM_IP_CONFIG_SOURCE_SHARED,
+        .addr_source = NM_IP_CONFIG_SOURCE_SHARED,
     };
 
     g_return_val_if_fail(self, NULL);
@@ -14687,6 +14702,12 @@ check_and_reapply_connection(NMDevice            *self,
                               nm_device_get_netns(self));
 
         reactivate_proxy_config(self);
+
+        /* Reapply may have changed the per-device L3 merge flags (ignore-auto-dns,
+         * ignore-auto-routes, never-default). Re-register the active l3cds so the
+         * refreshed flags reach l3cfg even for sources that are not restarted on
+         * reapply (e.g. DHCPv6 when the NDisc DHCP level is unchanged). */
+        _dev_l3_register_l3cds(self, priv->l3cfg, TRUE, FALSE);
 
         nm_device_l3cfg_commit(
             self,
@@ -16915,53 +16936,9 @@ _nm_device_check_connection_available(NMDevice                      *self,
             return TRUE;
         }
         nm_utils_error_set_literal(error,
-                                   NM_UTILS_ERROR_CONNECTION_AVAILABLE_UNMANAGED_DEVICE,
+                                   NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_UNMANAGED_DEVICE,
                                    "hardware device is not realized");
         return FALSE;
-    }
-
-    state = nm_device_get_state(self);
-    if (state < NM_DEVICE_STATE_UNMANAGED) {
-        nm_utils_error_set_literal(error,
-                                   NM_UTILS_ERROR_CONNECTION_AVAILABLE_UNMANAGED_DEVICE,
-                                   "device is in unknown state");
-        return FALSE;
-    }
-    if (state < NM_DEVICE_STATE_UNAVAILABLE) {
-        if (nm_device_get_managed(self, FALSE)) {
-            /* device is managed, both for user-requests and non-user-requests alike. */
-        } else {
-            if (!nm_device_get_managed(self, TRUE)) {
-                /* device is strictly unmanaged by authoritative unmanaged reasons. */
-                nm_utils_error_set_literal(
-                    error,
-                    NM_UTILS_ERROR_CONNECTION_AVAILABLE_STRICTLY_UNMANAGED_DEVICE,
-                    "device is strictly unmanaged");
-                return FALSE;
-            }
-            if (!NM_FLAGS_HAS(flags,
-                              _NM_DEVICE_CHECK_CON_AVAILABLE_FOR_USER_REQUEST_OVERRULE_UNMANAGED)) {
-                /* device could be managed for an explict user-request, but this is not such a request. */
-                nm_utils_error_set_literal(error,
-                                           NM_UTILS_ERROR_CONNECTION_AVAILABLE_UNMANAGED_DEVICE,
-                                           "device is currently unmanaged");
-                return FALSE;
-            }
-        }
-    }
-    if (state < NM_DEVICE_STATE_DISCONNECTED && !nm_device_is_software(self)) {
-        if (!nm_device_is_available(self, _device_check_dev_available_flags_from_con(flags))) {
-            if (NM_FLAGS_HAS(flags, _NM_DEVICE_CHECK_CON_AVAILABLE_FOR_USER_REQUEST)) {
-                nm_utils_error_set_literal(error,
-                                           NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
-                                           "device is not available");
-            } else {
-                nm_utils_error_set_literal(error,
-                                           NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
-                                           "device is not available for internal request");
-            }
-            return FALSE;
-        }
     }
 
     if (!nm_device_check_connection_compatible(self, connection, TRUE, error ? &local : NULL)) {
@@ -16974,6 +16951,50 @@ _nm_device_check_connection_available(NMDevice                      *self,
             g_error_free(local);
         }
         return FALSE;
+    }
+
+    state = nm_device_get_state(self);
+    if (state < NM_DEVICE_STATE_UNMANAGED) {
+        nm_utils_error_set_literal(error,
+                                   NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_UNMANAGED_DEVICE,
+                                   "device is in unknown state");
+        return FALSE;
+    }
+    if (state < NM_DEVICE_STATE_UNAVAILABLE) {
+        if (nm_device_get_managed(self, FALSE)) {
+            /* device is managed, both for user-requests and non-user-requests alike. */
+        } else {
+            if (!nm_device_get_managed(self, TRUE)) {
+                /* device is strictly unmanaged by authoritative unmanaged reasons. */
+                nm_utils_error_set_literal(
+                    error,
+                    NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_STRICTLY_UNMANAGED_DEVICE,
+                    "device is strictly unmanaged");
+                return FALSE;
+            }
+            if (!NM_FLAGS_HAS(flags,
+                              _NM_DEVICE_CHECK_CON_AVAILABLE_FOR_USER_REQUEST_OVERRULE_UNMANAGED)) {
+                /* device could be managed for an explict user-request, but this is not such a request. */
+                nm_utils_error_set_literal(error,
+                                           NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_UNMANAGED_DEVICE,
+                                           "device is currently unmanaged");
+                return FALSE;
+            }
+        }
+    }
+    if (state < NM_DEVICE_STATE_DISCONNECTED && !nm_device_is_software(self)) {
+        if (!nm_device_is_available(self, _device_check_dev_available_flags_from_con(flags))) {
+            if (NM_FLAGS_HAS(flags, _NM_DEVICE_CHECK_CON_AVAILABLE_FOR_USER_REQUEST)) {
+                nm_utils_error_set_literal(error,
+                                           NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_OTHER,
+                                           "device is not available");
+            } else {
+                nm_utils_error_set_literal(error,
+                                           NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_OTHER,
+                                           "device is not available for internal request");
+            }
+            return FALSE;
+        }
     }
 
     return NM_DEVICE_GET_CLASS(self)->check_connection_available(self,
@@ -17100,7 +17121,7 @@ check_connection_available(NMDevice                      *self,
     }
 
     nm_utils_error_set_literal(error,
-                               NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+                               NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_OTHER,
                                "device has no carrier");
     return FALSE;
 }
@@ -17980,6 +18001,14 @@ _set_state_full(NMDevice *self, NMDeviceState state, NMDeviceStateReason reason,
             nm_device_cleanup(self, reason, CLEANUP_TYPE_DECONFIGURE);
         }
         break;
+    case NM_DEVICE_STATE_DEACTIVATING:
+        /* When deactivating, certain devices are removed/disconnected after the
+         * STATE_CHANGED signal is sent and before the DHCP release packet
+         * can be sent. To ensure the release packet is sent, we cleanup DHCP
+         * before the signal is emitted*/
+        _dev_ipdhcpx_cleanup(self, AF_INET, TRUE, FALSE);
+        _dev_ipdhcpx_cleanup(self, AF_INET6, TRUE, FALSE);
+        break;
     case NM_DEVICE_STATE_DISCONNECTED:
         if (old_state > NM_DEVICE_STATE_DISCONNECTED) {
             /* Ensure devices that previously assumed a connection now have
@@ -18029,6 +18058,7 @@ _set_state_full(NMDevice *self, NMDeviceState state, NMDeviceStateReason reason,
                                (guint32) state,
                                (guint32) old_state,
                                (guint32) reason);
+
     g_signal_emit(self,
                   signals[STATE_CHANGED],
                   0,
@@ -18222,10 +18252,10 @@ nm_device_state_changed(NMDevice *self, NMDeviceState state, NMDeviceStateReason
 static gboolean
 queued_state_set(gpointer user_data)
 {
-    NMDevice           *self = NM_DEVICE(user_data);
-    NMDevicePrivate    *priv = NM_DEVICE_GET_PRIVATE(self);
-    NMDeviceState       new_state;
-    NMDeviceStateReason new_reason;
+    gs_unref_object NMDevice *self = g_object_ref(NM_DEVICE(user_data));
+    NMDevicePrivate          *priv = NM_DEVICE_GET_PRIVATE(self);
+    NMDeviceState             new_state;
+    NMDeviceStateReason       new_reason;
 
     nm_assert(priv->queued_state.id);
 
@@ -18654,9 +18684,9 @@ _hw_addr_set(NMDevice         *self,
 
 again:
     r       = nm_platform_link_set_address(nm_device_get_platform(self),
-                                     nm_device_get_ip_ifindex(self),
-                                     addr_bytes,
-                                     addr_len);
+                                           nm_device_get_ip_ifindex(self),
+                                           addr_bytes,
+                                           addr_len);
     success = (r >= 0);
     if (!success) {
         retry_down =
@@ -20349,12 +20379,12 @@ nm_device_class_init(NMDeviceClass *klass)
                                                         FALSE,
                                                         G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
     obj_properties[PROP_MTU]     = g_param_spec_uint(NM_DEVICE_MTU,
-                                                 "",
-                                                 "",
-                                                 0,
-                                                 G_MAXUINT32,
-                                                 1500,
-                                                 G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
+                                                     "",
+                                                     "",
+                                                     0,
+                                                     G_MAXUINT32,
+                                                     1500,
+                                                     G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
     obj_properties[PROP_IP4_ADDRESS] =
         g_param_spec_variant(NM_DEVICE_IP4_ADDRESS,
                              "",
@@ -20423,11 +20453,11 @@ nm_device_class_init(NMDeviceClass *klass)
                           NM_LINK_TYPE_NONE,
                           G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
     obj_properties[PROP_MANAGED]     = g_param_spec_boolean(NM_DEVICE_MANAGED,
-                                                        "",
-                                                        "",
-                                                        FALSE,
-                                                        G_PARAM_READWRITE | /* via D-Bus */
-                                                            G_PARAM_STATIC_STRINGS);
+                                                            "",
+                                                            "",
+                                                            FALSE,
+                                                            G_PARAM_READWRITE | /* via D-Bus */
+                                                                G_PARAM_STATIC_STRINGS);
     obj_properties[PROP_AUTOCONNECT] = g_param_spec_boolean(NM_DEVICE_AUTOCONNECT,
                                                             "",
                                                             "",
@@ -20515,10 +20545,10 @@ nm_device_class_init(NMDeviceClass *klass)
                              NULL,
                              G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
     obj_properties[PROP_REAL]   = g_param_spec_boolean(NM_DEVICE_REAL,
-                                                     "",
-                                                     "",
-                                                     FALSE,
-                                                     G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
+                                                       "",
+                                                       "",
+                                                       FALSE,
+                                                       G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
     obj_properties[PROP_SLAVES] = g_param_spec_variant(NM_DEVICE_SLAVES,
                                                        "",
                                                        "",
@@ -20526,11 +20556,11 @@ nm_device_class_init(NMDeviceClass *klass)
                                                        NULL,
                                                        G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
     obj_properties[PROP_PORTS]  = g_param_spec_variant(NM_DEVICE_PORTS,
-                                                      "",
-                                                      "",
-                                                      G_VARIANT_TYPE("ao"),
-                                                      NULL,
-                                                      G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
+                                                       "",
+                                                       "",
+                                                       G_VARIANT_TYPE("ao"),
+                                                       NULL,
+                                                       G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
 
     obj_properties[PROP_STATISTICS_REFRESH_RATE_MS] =
         g_param_spec_uint(NM_DEVICE_STATISTICS_REFRESH_RATE_MS,

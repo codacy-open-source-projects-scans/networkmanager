@@ -14,6 +14,8 @@
 #include "libnm-client-aux-extern/nm-default-client.h"
 
 #include <fcntl.h>
+#include <signal.h>
+#include <slang.h>
 #include <unistd.h>
 
 #include "nmt-newt-form.h"
@@ -31,13 +33,17 @@ typedef struct {
     NmtNewtWidget *content;
 
     guint    x, y, width, height;
+    guint    form_width_max;
     guint    padding;
     gboolean fixed_x, fixed_y;
     gboolean fixed_width, fixed_height;
+    gboolean stable_width;
+    gboolean fullscreen_vertical, fullscreen_horizontal;
     char    *title_lc;
 
     gboolean       dirty;
     NmtNewtWidget *focus;
+    GArray        *hotkeys;
 #ifdef HAVE_NEWTFORMGETSCROLLPOSITION
     int scroll_position = 0;
 #endif
@@ -60,6 +66,7 @@ enum {
 
 enum {
     QUIT,
+    HOTKEY,
 
     LAST_SIGNAL
 };
@@ -118,6 +125,7 @@ nmt_newt_form_finalize(GObject *object)
 
     g_free(priv->title_lc);
     g_clear_object(&priv->focus);
+    nm_clear_pointer(&priv->hotkeys, g_array_unref);
 
     G_OBJECT_CLASS(nmt_newt_form_parent_class)->finalize(object);
 }
@@ -181,15 +189,38 @@ nmt_newt_form_build(NmtNewtForm *form)
     nmt_newt_widget_size_request(priv->content, &form_width, &form_height);
     newtGetScreenSize(&screen_width, &screen_height);
 
+    if (priv->stable_width) {
+        /* Never let the form get narrower across rebuilds. Otherwise content
+         * that shrinks (eg, a filtered list) makes the window recenter and
+         * "jump". Only forms that opt in get this; see
+         * nmt_newt_form_set_stable_width(). */
+        priv->form_width_max = NM_MAX(priv->form_width_max, (guint) NM_MAX(form_width, 0));
+        form_width           = priv->form_width_max;
+    }
+
     if (!priv->fixed_width)
         priv->width = NM_MIN(form_width + 2 * ((gint64) priv->padding), screen_width - 2);
     if (!priv->fixed_height)
         priv->height = NM_MIN(form_height + 2 * ((gint64) priv->padding), screen_height - 2);
 
     if (!priv->fixed_x)
-        priv->x = (screen_width - form_width) / 2;
+        priv->x = (screen_width - (int) priv->width) / 2;
     if (!priv->fixed_y)
-        priv->y = (screen_height - form_height) / 2;
+        priv->y = (screen_height - (int) priv->height) / 2;
+
+    if (priv->fullscreen_horizontal) {
+        priv->x     = 2;
+        priv->width = screen_width - 4;
+    }
+    if (priv->fullscreen_vertical) {
+        priv->y      = 2;
+        priv->height = screen_height - 4;
+    }
+
+    if ((int) priv->x < 0)
+        priv->x = 0;
+    if ((int) priv->y < 0)
+        priv->y = 0;
 
     nmt_newt_widget_size_allocate(priv->content,
                                   priv->padding,
@@ -211,6 +242,12 @@ nmt_newt_form_build(NmtNewtForm *form)
         priv->form = newtForm(NULL, NULL, NEWT_FLAG_NOF12);
 
     newtFormAddHotKey(priv->form, NEWT_KEY_ESCAPE);
+    if (priv->hotkeys) {
+        guint h;
+
+        for (h = 0; h < priv->hotkeys->len; h++)
+            newtFormAddHotKey(priv->form, nm_g_array_index(priv->hotkeys, int, h));
+    }
 
     cos = nmt_newt_widget_get_components(priv->content);
     for (i = 0; cos[i]; i++)
@@ -270,6 +307,17 @@ nmt_newt_form_iterate(NmtNewtForm *form)
     newtFormSetTimer(priv->form, 1);
     newtFormRun(priv->form, &es);
 
+    if (es.reason == NEWT_EXIT_HOTKEY) {
+        gboolean handled = FALSE;
+
+        /* Give listeners (eg, the connection-list search) a chance to consume the
+         * key. Esc is included, so a listener can make it cancel a transient mode
+         * instead of closing the form. */
+        g_signal_emit(form, signals[HOTKEY], 0, (int) es.u.key, &handled);
+        if (handled)
+            return;
+    }
+
     if (es.reason == NEWT_EXIT_HOTKEY || es.reason == NEWT_EXIT_ERROR) {
         /* The user hit Esc or there was an error. */
         g_clear_object(&priv->focus);
@@ -301,6 +349,58 @@ nmt_newt_form_iterate(NmtNewtForm *form)
  */
 static GSList  *form_stack;
 static GSource *keypress_source;
+static GSource *winch_source;
+
+typedef struct {
+    NmtNewtFormResizeCallback callback;
+    gpointer                  user_data;
+} ResizeCallback;
+
+static GSList *resize_callbacks;
+
+/**
+ * nmt_newt_form_add_resize_callback:
+ * @callback: the function to call when the terminal is resized
+ * @user_data: data to pass to @callback
+ *
+ * Registers @callback to be invoked on terminal resize, after the screen
+ * size is updated but before the forms are rebuilt, so widgets whose
+ * content depends on the screen size can regenerate it.
+ */
+void
+nmt_newt_form_add_resize_callback(NmtNewtFormResizeCallback callback, gpointer user_data)
+{
+    ResizeCallback *rc;
+
+    rc            = g_slice_new(ResizeCallback);
+    rc->callback  = callback;
+    rc->user_data = user_data;
+
+    resize_callbacks = g_slist_append(resize_callbacks, rc);
+}
+
+/**
+ * nmt_newt_form_remove_resize_callback:
+ * @callback: the callback to remove
+ * @user_data: the data it was registered with
+ *
+ * Removes a callback added with nmt_newt_form_add_resize_callback().
+ */
+void
+nmt_newt_form_remove_resize_callback(NmtNewtFormResizeCallback callback, gpointer user_data)
+{
+    GSList *iter;
+
+    for (iter = resize_callbacks; iter; iter = iter->next) {
+        ResizeCallback *rc = iter->data;
+
+        if (rc->callback == callback && rc->user_data == user_data) {
+            resize_callbacks = g_slist_remove(resize_callbacks, rc);
+            g_slice_free(ResizeCallback, rc);
+            return;
+        }
+    }
+}
 
 static gboolean
 nmt_newt_form_keypress_callback(int fd, GIOCondition condition, gpointer user_data)
@@ -309,6 +409,54 @@ nmt_newt_form_keypress_callback(int fd, GIOCondition condition, gpointer user_da
 
     nmt_newt_form_iterate(form_stack->data);
     return TRUE;
+}
+
+/* On SIGWINCH, refit every form in the stack to the new terminal size. The
+ * windows must be popped top-to-bottom (newt's window stack is LIFO) and rebuilt
+ * bottom-to-top to restore the original z-order.
+ */
+static void
+nmt_newt_form_resize(void)
+{
+    GSList *bottom_up;
+    GSList *iter;
+
+    for (iter = form_stack; iter; iter = iter->next) {
+        NmtNewtForm        *form = iter->data;
+        NmtNewtFormPrivate *priv = NMT_NEWT_FORM_GET_PRIVATE(form);
+
+        if (priv->form)
+            nmt_newt_form_destroy(form);
+    }
+
+    /* newtResizeScreen() updates SLtt's screen size but skips the
+     * SLsmg_reinit_smg() that resizes the screen buffer (commented out
+     * upstream), so rows newly exposed by a taller terminal go unpainted. Do
+     * it ourselves, then repaint the root. */
+    SLtt_get_screen_size();
+    SLsmg_reinit_smg();
+    newtCls();
+
+    for (iter = resize_callbacks; iter; iter = iter->next) {
+        ResizeCallback *rc = iter->data;
+
+        rc->callback(rc->user_data);
+    }
+
+    bottom_up = g_slist_reverse(g_slist_copy(form_stack));
+    for (iter = bottom_up; iter; iter = iter->next)
+        nmt_newt_form_build(iter->data);
+    g_slist_free(bottom_up);
+
+    nmt_newt_form_redraw(form_stack->data);
+}
+
+static gboolean
+nmt_newt_form_winch_callback(gpointer user_data)
+{
+    if (form_stack)
+        nmt_newt_form_resize();
+    return G_SOURCE_CONTINUE;
 }
 
 static gboolean
@@ -338,6 +486,8 @@ nmt_newt_form_real_show(NmtNewtForm *form)
         g_source_set_can_recurse(keypress_source, TRUE);
         g_source_attach(keypress_source, NULL);
     }
+    if (!winch_source)
+        winch_source = nm_g_unix_signal_add_source(SIGWINCH, nmt_newt_form_winch_callback, NULL);
 
     nmt_newt_form_build(form);
     form_stack = g_slist_prepend(form_stack, g_object_ref(form));
@@ -403,8 +553,10 @@ nmt_newt_form_quit(NmtNewtForm *form)
 
     if (form_stack)
         nmt_newt_form_iterate(form_stack->data);
-    else
+    else {
         nm_clear_g_source_inst(&keypress_source);
+        nm_clear_g_source_inst(&winch_source);
+    }
 
     g_signal_emit(form, signals[QUIT], 0);
     g_object_unref(form);
@@ -434,11 +586,47 @@ nmt_newt_form_set_focus(NmtNewtForm *form, NmtNewtWidget *widget)
         g_object_ref(priv->focus);
 }
 
+/**
+ * nmt_newt_form_add_hotkey:
+ * @form: an #NmtNewtForm
+ * @key: a key code (eg, a character, or an %NEWT_KEY_ value)
+ *
+ * Registers @key as a hotkey on @form. When the user presses it, the
+ * #NmtNewtForm::hotkey signal is emitted; a handler returning %TRUE consumes
+ * the key, otherwise the form's default handling applies.
+ */
+void
+nmt_newt_form_add_hotkey(NmtNewtForm *form, int key)
+{
+    NmtNewtFormPrivate *priv = NMT_NEWT_FORM_GET_PRIVATE(form);
+
+    if (!priv->hotkeys)
+        priv->hotkeys = g_array_new(FALSE, FALSE, sizeof(int));
+    g_array_append_val(priv->hotkeys, key);
+
+    if (priv->form)
+        newtFormAddHotKey(priv->form, key);
+}
+
+/**
+ * nmt_newt_form_set_stable_width:
+ * @form: an #NmtNewtForm
+ *
+ * Stops @form from getting narrower across rebuilds: its width grows to fit
+ * content but never shrinks. Use for forms whose content shrinks in place (eg,
+ * a list filtered by a search box) where recentering would make the window
+ * "jump".
+ */
+void
+nmt_newt_form_set_stable_width(NmtNewtForm *form)
+{
+    NMT_NEWT_FORM_GET_PRIVATE(form)->stable_width = TRUE;
+}
+
 static void
 nmt_newt_form_set_property(GObject *object, guint prop_id, const GValue *value, GParamSpec *pspec)
 {
     NmtNewtFormPrivate *priv = NMT_NEWT_FORM_GET_PRIVATE(object);
-    int                 screen_width, screen_height;
 
     switch (prop_id) {
     case PROP_TITLE:
@@ -448,32 +636,13 @@ nmt_newt_form_set_property(GObject *object, guint prop_id, const GValue *value, 
             priv->title_lc = NULL;
         break;
     case PROP_FULLSCREEN:
-        if (g_value_get_boolean(value)) {
-            newtGetScreenSize(&screen_width, &screen_height);
-            priv->x = priv->y = 2;
-            priv->fixed_x = priv->fixed_y = TRUE;
-            priv->width                   = screen_width - 4;
-            priv->height                  = screen_height - 4;
-            priv->fixed_width = priv->fixed_height = TRUE;
-        }
+        priv->fullscreen_horizontal = priv->fullscreen_vertical = g_value_get_boolean(value);
         break;
     case PROP_FULLSCREEN_VERTICAL:
-        if (g_value_get_boolean(value)) {
-            newtGetScreenSize(&screen_width, &screen_height);
-            priv->y            = 2;
-            priv->fixed_y      = TRUE;
-            priv->height       = screen_height - 4;
-            priv->fixed_height = TRUE;
-        }
+        priv->fullscreen_vertical = g_value_get_boolean(value);
         break;
     case PROP_FULLSCREEN_HORIZONTAL:
-        if (g_value_get_boolean(value)) {
-            newtGetScreenSize(&screen_width, &screen_height);
-            priv->x           = 2;
-            priv->fixed_x     = TRUE;
-            priv->width       = screen_width - 4;
-            priv->fixed_width = TRUE;
-        }
+        priv->fullscreen_horizontal = g_value_get_boolean(value);
         break;
     case PROP_X:
         if (g_value_get_uint(value)) {
@@ -578,6 +747,28 @@ nmt_newt_form_class_init(NmtNewtFormClass *form_class)
                                  NULL,
                                  G_TYPE_NONE,
                                  0);
+
+    /**
+     * NmtNewtForm::hotkey:
+     * @form: the #NmtNewtForm
+     * @key: the key that was pressed
+     *
+     * Emitted when a key registered via nmt_newt_form_add_hotkey() (or Esc) is
+     * pressed. A handler returning %TRUE consumes the key; otherwise the form's
+     * default handling applies (Esc closes the form).
+     *
+     * Returns: %TRUE if the key was handled.
+     */
+    signals[HOTKEY] = g_signal_new("hotkey",
+                                   G_OBJECT_CLASS_TYPE(object_class),
+                                   G_SIGNAL_RUN_LAST,
+                                   G_STRUCT_OFFSET(NmtNewtFormClass, hotkey),
+                                   g_signal_accumulator_true_handled,
+                                   NULL,
+                                   NULL,
+                                   G_TYPE_BOOLEAN,
+                                   1,
+                                   G_TYPE_INT);
 
     /**
      * NmtNewtForm:title:

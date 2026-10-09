@@ -854,14 +854,14 @@ check_connection_compatible_with_modem(NMModem *_self, NMConnection *connection,
     if (!_nm_connection_check_main_setting(connection, NM_SETTING_GSM_SETTING_NAME, NULL)
         && !_nm_connection_check_main_setting(connection, NM_SETTING_CDMA_SETTING_NAME, NULL)) {
         nm_utils_error_set(error,
-                           NM_UTILS_ERROR_CONNECTION_AVAILABLE_INCOMPATIBLE,
+                           NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_INCOMPATIBLE,
                            "connection type %s is not supported by modem",
                            nm_connection_get_connection_type(connection));
         return FALSE;
     }
 
     nm_utils_error_set(error,
-                       NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+                       NM_UTILS_ERROR_CONNECTION_UNAVAILABLE_OTHER,
                        "modem lacks capabilities for %s profile",
                        nm_connection_get_connection_type(connection));
     return FALSE;
@@ -1209,8 +1209,8 @@ stage3_ip_config_start(NMModem *modem, int addr_family, NMModemIPMethod ip_metho
         _LOGI("IPv6 base configuration:");
 
         l3cd    = nm_l3_config_data_new(nm_platform_get_multi_idx(NM_PLATFORM_GET),
-                                     ifindex,
-                                     NM_IP_CONFIG_SOURCE_WWAN);
+                                        ifindex,
+                                        NM_IP_CONFIG_SOURCE_WWAN);
         do_auto = TRUE;
 
         if (address_string) {

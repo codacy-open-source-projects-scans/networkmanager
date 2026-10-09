@@ -28,16 +28,12 @@ src/core/devices/wifi/nm-device-olpc-mesh.c
 src/core/devices/wifi/nm-device-wifi.c
 src/core/devices/wifi/nm-wifi-utils.c
 src/core/devices/wwan/nm-modem-broadband.c
-src/core/dhcp/nm-dhcp-dhclient-utils.c
-src/core/dhcp/nm-dhcp-dhclient.c
 src/core/dhcp/nm-dhcp-manager.c
 src/core/dns/nm-dns-manager.c
 src/core/main-utils.c
 src/core/main.c
 src/core/nm-config.c
 src/core/nm-manager.c
-src/core/settings/plugins/ifcfg-rh/nms-ifcfg-rh-reader.c
-src/core/settings/plugins/ifcfg-rh/tests/test-ifcfg-rh.c
 src/libnm-client-impl/nm-client.c
 src/libnm-client-impl/nm-conn-utils.c
 src/libnm-client-impl/nm-device-6lowpan.c
@@ -199,7 +195,9 @@ src/nmtui/nmt-password-fields.c
 src/nmtui/nmt-port-list.c
 src/nmtui/nmt-route-editor.c
 src/nmtui/nmt-route-table.c
+src/nmtui/nmt-utils.c
 src/nmtui/nmt-widget-list.c
+src/nmtui/nmt-wifi-qr-dialog.c
 src/nmtui/nmt-wireguard-peer-editor.c
 src/nmtui/nmt-wireguard-peer-list.c
 src/nmtui/nmtui-connect.c

@@ -11,7 +11,6 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <stdlib.h>
-#include <sys/sendfile.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -1226,8 +1225,8 @@ nm_manager_get_activatable_connections(NMManager *manager,
 {
     NMManagerPrivate                         *priv = NM_MANAGER_GET_PRIVATE(manager);
     const GetActivatableConnectionsFilterData d    = {
-           .self                = manager,
-           .for_auto_activation = for_auto_activation,
+        .self                = manager,
+        .for_auto_activation = for_auto_activation,
     };
 
     return nm_settings_get_connections_clone(
@@ -2514,9 +2513,9 @@ nm_manager_get_connection_iface(NMManager    *self,
 
     parent = find_parent_device_for_connection(self, connection, factory, out_parent_spec);
     iface  = nm_device_factory_get_connection_iface(factory,
-                                                   connection,
-                                                   parent ? nm_device_get_ip_iface(parent) : NULL,
-                                                   error);
+                                                    connection,
+                                                    parent ? nm_device_get_ip_iface(parent) : NULL,
+                                                    error);
     if (!iface)
         return NULL;
 
@@ -3585,34 +3584,6 @@ get_existing_connection(NMManager *self, NMDevice *device, gboolean *out_generat
 }
 
 static gboolean
-copy_lease(const char *src, const char *dst)
-{
-    nm_auto_close int src_fd = -1;
-    int               dst_fd;
-    ssize_t           res, size = SSIZE_MAX;
-
-    src_fd = open(src, O_RDONLY | O_CLOEXEC);
-    if (src_fd < 0)
-        return FALSE;
-
-    dst_fd = open(dst, O_CREAT | O_EXCL | O_CLOEXEC | O_WRONLY, 0644);
-    if (dst_fd < 0)
-        return FALSE;
-
-    while ((res = sendfile(dst_fd, src_fd, NULL, size)) > 0)
-        size -= res;
-
-    nm_close(dst_fd);
-
-    if (res != 0) {
-        unlink(dst);
-        return FALSE;
-    }
-
-    return TRUE;
-}
-
-static gboolean
 recheck_assume_connection(NMManager *self, NMDevice *device)
 {
     NMSettingsConnection *sett_conn;
@@ -3652,18 +3623,9 @@ recheck_assume_connection(NMManager *self, NMDevice *device)
     if (state == NM_DEVICE_STATE_UNMANAGED) {
         gs_free char *initramfs_lease =
             g_strdup_printf(RUNSTATEDIR "/initramfs/net.%s.lease", nm_device_get_iface(device));
-        gs_free char *connection_lease = g_strdup_printf(NMRUNDIR "/dhclient-%s-%s.lease",
-                                                         nm_settings_connection_get_uuid(sett_conn),
-                                                         nm_device_get_iface(device));
 
-        if (copy_lease(initramfs_lease, connection_lease)) {
+        if (g_file_test(initramfs_lease, G_FILE_TEST_EXISTS)) {
             unlink(initramfs_lease);
-            /*
-             * We've managed to steal the lease used by initramfs before it
-             * killed off the dhclient. We need to take ownership of the configured
-             * connection and act like the device was configured by us.
-             * Otherwise, the address would just expire.
-             */
             _LOG2I(LOGD_DEVICE, device, "assume: taking over an initramfs-configured connection");
             activation_type_assume = TRUE;
 
@@ -3885,10 +3847,19 @@ _get_best_connectivity(NMManager *self, int addr_family)
         if (NM_IS_DEVICE_LOOPBACK(dev))
             continue;
 
-        r = nm_device_get_best_default_route(dev, addr_family);
-        if (r)
+        r     = nm_device_get_best_default_route(dev, addr_family);
+        state = nm_device_get_connectivity_state(dev, addr_family);
+
+        if (r) {
+            /* If a default-route device is FULL, that is the global state: its
+             * route carries no penalty, so it outranks any non-FULL device (which
+             * gets +20000). Decide on the state directly, not the metric, which is
+             * stale here because the penalty commits to the route asynchronously
+             * after this recompute. */
+            if (nm_connectivity_state_cmp(state, NM_CONNECTIVITY_FULL) >= 0)
+                return NM_CONNECTIVITY_FULL;
             metric = NMP_OBJECT_CAST_IP_ROUTE(r)->metric;
-        else {
+        } else {
             /* if all devices have no default-route, we still include the best
              * of all connectivity state of all the devices. */
             metric = G_MAXINT64;
@@ -3896,11 +3867,10 @@ _get_best_connectivity(NMManager *self, int addr_family)
 
         if (metric > best_metric) {
             /* we already have a default route with better metric. The connectivity state
-             * of this device is irreleavnt. */
+             * of this device is irrelevant. */
             continue;
         }
 
-        state = nm_device_get_connectivity_state(dev, addr_family);
         if (metric < best_metric) {
             /* this device has a better default route. It wins. */
             best_metric = metric;
@@ -8146,6 +8116,27 @@ nm_manager_start(NMManager *self, GError **error)
     return TRUE;
 }
 
+static int
+compare_device_remove_order(const CList *a, const CList *b, const void *user_data)
+{
+    NMDevice *dev_a = c_list_entry(a, NMDevice, devices_lst);
+    NMDevice *dev_b = c_list_entry(b, NMDevice, devices_lst);
+
+    gboolean a_has_dhcp =
+        nm_device_get_dhcp_config(dev_a, AF_INET) || nm_device_get_dhcp_config(dev_a, AF_INET6);
+    gboolean b_has_dhcp =
+        nm_device_get_dhcp_config(dev_b, AF_INET) || nm_device_get_dhcp_config(dev_b, AF_INET6);
+    gboolean a_is_software = nm_device_is_software(dev_a);
+    gboolean b_is_software = nm_device_is_software(dev_b);
+
+    /* priority: software AND dhcp first, then dhcp only
+     * then everything else,*/
+    int a_score = a_has_dhcp ? (a_is_software ? 2 : 1) : 0;
+    int b_score = b_has_dhcp ? (b_is_software ? 2 : 1) : 0;
+
+    return b_score - a_score;
+}
+
 void
 nm_manager_stop(NMManager *self)
 {
@@ -8167,6 +8158,12 @@ nm_manager_stop(NMManager *self)
 
     nm_dbus_manager_stop(nm_dbus_object_get_manager(NM_DBUS_OBJECT(self)));
 
+    /* When OVS internal interface or linux bridge holds DHCP, if we delete its
+     * physical interface first, then we cannot send out DHCP release request
+     * anymore. To fix that, we need to remove/deactivate software interfaces that
+     * holds DHCP config first.
+     */
+    c_list_sort(&priv->devices_lst_head, compare_device_remove_order, NULL);
     while ((device = c_list_first_entry(&priv->devices_lst_head, NMDevice, devices_lst)))
         remove_device(self, device, TRUE);
 
@@ -9543,9 +9540,9 @@ static const NMDBusInterfaceInfoExtended interface_info_manager = {
                         NM_DEFINE_GDBUS_ARG_INFO("add_timeout", "u"), ), ),
                 .handle = impl_manager_checkpoint_adjust_rollback_timeout, ), ),
         .signals    = NM_DEFINE_GDBUS_SIGNAL_INFOS(&signal_info_check_permissions,
-                                                &signal_info_state_changed,
-                                                &signal_info_device_added,
-                                                &signal_info_device_removed, ),
+                                                   &signal_info_state_changed,
+                                                   &signal_info_device_added,
+                                                   &signal_info_device_removed, ),
         .properties = NM_DEFINE_GDBUS_PROPERTY_INFOS(
             NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE("Devices", "ao", NM_MANAGER_DEVICES),
             NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE("AllDevices",

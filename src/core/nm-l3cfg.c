@@ -708,9 +708,9 @@ _nm_l3cfg_emit_signal_notify_commit(NML3Cfg              *self,
 
     notify_data.notify_type = type;
     notify_data.commit      = (typeof(notify_data.commit)) {
-             .l3cd_old     = l3cd_old,
-             .l3cd_new     = l3cd_new,
-             .l3cd_changed = l3cd_changed,
+        .l3cd_old     = l3cd_old,
+        .l3cd_new     = l3cd_new,
+        .l3cd_changed = l3cd_changed,
     };
     _nm_l3cfg_emit_signal_notify(self, &notify_data);
 }
@@ -2380,7 +2380,7 @@ _nm_l3cfg_emit_signal_notify_acd_event(NML3Cfg *self, AcdData *acd_data)
 
     notify_data.notify_type = NM_L3_CONFIG_NOTIFY_TYPE_ACD_EVENT;
     notify_data.acd_event   = (typeof(notify_data.acd_event)) {
-          .info = acd_data->info,
+        .info = acd_data->info,
     };
 
     /* we need to clone the track-data, because the callee is allowed to add/remove
@@ -4216,9 +4216,10 @@ _l3cfg_update_clat_config(NML3Cfg             *self,
         /* disable if there is a native IPv4 gateway */
         nm_l3_config_data_iter_ip4_route_for_each (&iter, l3cd, &ip4_route) {
             if (ip4_route->network == INADDR_ANY && ip4_route->plen == 0
-                && ip4_route->gateway != INADDR_ANY)
+                && ip4_route->gateway != INADDR_ANY) {
                 clat_enabled = FALSE;
-            break;
+                break;
+            }
         }
         break;
     case NM_SETTING_IP4_CONFIG_CLAT_DEFAULT:
@@ -5193,11 +5194,11 @@ _routes_watch_ip_addrs(NML3Cfg *self, int addr_family, GPtrArray *addresses, GPt
 {
     gconstpointer const TAG          = _NETNS_WATCHER_IP_ADDR_TAG(self, addr_family);
     NMNetnsWatcherData  watcher_data = {
-         .ip_addr =
+        .ip_addr =
             {
-                 .addr =
+                .addr =
                     {
-                         .addr_family = addr_family,
+                        .addr_family = addr_family,
                     },
             },
     };
